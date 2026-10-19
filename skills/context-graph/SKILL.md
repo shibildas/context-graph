@@ -37,7 +37,7 @@ Use this skill when the user asks to:
 ### 1. Fixing a Hallucination or Recording a Ground-Truth Override
 1. Call `cache_record_correction` with:
    - `workspace_path`: Active workspace path
-   - `override_key`: Short descriptive slug (e.g., `"hdfc-live-env-config"`)
+   - `override_key`: Short descriptive slug (e.g., `"api-timeout-config"`)
    - `hallucination_or_mistake`: What was wrongly assumed or hallucinated
    - `verified_truth`: The exact verified behavior or rule
    - `scope_files`: List of affected files

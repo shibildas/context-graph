@@ -258,7 +258,7 @@ TOOLS = [
                 },
                 "override_key": {
                     "type": "string",
-                    "description": "Unique slug identifier for this correction (e.g., 'hdfc-live-env-value', 'no-manual-payment-insert').",
+                    "description": "Unique slug identifier for this correction (e.g., 'api-timeout-ms', 'strict-null-checks').",
                 },
                 "hallucination_or_mistake": {
                     "type": "string",

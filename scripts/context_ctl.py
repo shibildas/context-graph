@@ -11,9 +11,9 @@ Examples:
 
   # 3. Record a verified ground-truth override to prevent an LLM hallucination:
   python3 scripts/context_ctl.py correct --workspace /path/to/repo \
-    --key "hdfc-live-env" \
-    --mistake "Assuming HDFC_ENV is LIVE in production" \
-    --truth "HDFC_ENV must be set to PRODUCTION in live environment"
+    --key "api-timeout-ms" \
+    --mistake "Assuming DEFAULT_TIMEOUT_MS is 30000 in production" \
+    --truth "DEFAULT_TIMEOUT_MS must be set to 5000 in production"
 
   # 4. Override or delete a specific cached entry:
   python3 scripts/context_ctl.py override --workspace /path/to/repo \

@@ -1485,7 +1485,7 @@ def _upsert_conversation_usage(
             ws,
             repo_info["repo_root"],
             repo_info["repo_name"],
-            repo_info["git_remote"],
+            git_remote,
             repo_info["git_branch"],
             model_name or "auto",
             title,
@@ -1878,7 +1878,7 @@ def get_token_usage_report(
                 {
                     "project_root": r["project_root"],
                     "repo_name": r["repo_name"] or "unscoped / global",
-                    "git_remote": r["git_remote"] or "",
+                    "git_remote": redact_secrets(r["git_remote"] or ""),
                     "git_branch": r["git_branch"] or "",
                     "conversation_count": c_cnt,
                     "total_turns": int(r["total_turns"] or 0),

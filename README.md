@@ -69,9 +69,9 @@ sh ./install.sh --all
   ```bash
   python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py correct \
     --workspace /path/to/repo \
-    --key "hdfc-live-env" \
-    --mistake "Assuming HDFC_ENV is LIVE in production" \
-    --truth "HDFC_ENV must be set to PRODUCTION in live environment"
+    --key "api-timeout-ms" \
+    --mistake "Assuming DEFAULT_TIMEOUT_MS is 30000 in production" \
+    --truth "DEFAULT_TIMEOUT_MS must be set to 5000 in production"
   ```
 - **Automated Hallucination Detector & Healer (`cache_verify_and_fix_hallucinations`)**:
   ```bash
