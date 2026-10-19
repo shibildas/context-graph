@@ -11,8 +11,11 @@ import sys
 import traceback
 from typing import Any, Dict
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import db_engine
+PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PLUGIN_ROOT not in sys.path:
+    sys.path.insert(0, PLUGIN_ROOT)
+
+from server import db_engine
 
 
 TOOLS = [

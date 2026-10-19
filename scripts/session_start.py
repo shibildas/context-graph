@@ -11,9 +11,10 @@ import os
 import sys
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(PLUGIN_ROOT, "server"))
+if PLUGIN_ROOT not in sys.path:
+    sys.path.insert(0, PLUGIN_ROOT)
 
-import db_engine
+from server import db_engine
 
 
 def build_digest(workspace_path: str) -> str:
