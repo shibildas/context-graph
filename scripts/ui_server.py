@@ -290,8 +290,24 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <script>
-    let STATE = __INITIAL_STATE_JSON__;
-    const IS_LIVE_SERVER = window.location.protocol.startsWith('http');
+    const API_BASE = window.location.protocol.startsWith('http') ? '' : 'http://127.0.0.1:8765';
+    let STATE = {
+      token_report: {
+        grand_totals: {
+          total_conversations: 0,
+          input_tokens: 0,
+          cache_read_tokens: 0,
+          output_tokens: 0,
+          total_tokens: 0,
+          cache_hit_rate_pct: 0
+        },
+        by_client: [],
+        by_project_repo: [],
+        by_conversation: []
+      },
+      workspaces: [],
+      overviews: {}
+    };
 
     function fmtNum(n) {
       return Number(n || 0).toLocaleString();
@@ -310,7 +326,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     function renderKPIs() {
-      const gt = STATE.token_report.grand_totals;
+      const gt = STATE.token_report.grand_totals || {};
       let totalFiles = 0, totalRels = 0, totalOverrides = 0;
       Object.values(STATE.overviews || {}).forEach(ov => {
         totalFiles += (ov.stats?.total_cached_files || 0);
@@ -319,8 +335,8 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       });
 
       const cards = [
-        { label: 'Total Tokens Tracked', val: fmtNum(gt.total_tokens), sub: `${gt.total_conversations} conversations` },
-        { label: 'Cache Hit Efficiency', val: `${gt.cache_hit_rate_pct}%`, sub: `${fmtNum(gt.cache_read_tokens)} cached tokens` },
+        { label: 'Total Tokens Tracked', val: fmtNum(gt.total_tokens), sub: `${fmtNum(gt.total_conversations)} conversations` },
+        { label: 'Cache Hit Efficiency', val: `${gt.cache_hit_rate_pct || 0}%`, sub: `${fmtNum(gt.cache_read_tokens)} cached tokens` },
         { label: 'Input / Output Tokens', val: fmtNum(gt.input_tokens), sub: `${fmtNum(gt.output_tokens)} output tokens` },
         { label: 'Indexed Files & Edges', val: `${totalFiles} files`, sub: `${totalRels} implementation edges` },
         { label: 'Ground-Truth Pins', val: `${totalOverrides}`, sub: `Anti-hallucination overrides` },
@@ -336,7 +352,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     function renderTokens() {
-      const tr = STATE.token_report;
+      const tr = STATE.token_report || {};
       document.getElementById('table-clients').innerHTML = (tr.by_client || []).map(c => `
         <tr class="border-b border-[var(--border,#334155)]/50">
           <td class="py-2.5 px-3 font-semibold text-indigo-400">${c.client_source}</td>
@@ -474,24 +490,24 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       const ws = document.getElementById('ws-select')?.value || 'global';
       const toast = document.getElementById('action-toast');
       toast.classList.remove('hidden');
-      if (!IS_LIVE_SERVER) {
+      toast.textContent = `Running ${action} on ${ws}...`;
+      try {
+        const res = await fetch(`${API_BASE}/api/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, workspace_path: ws })
+        });
+        const data = await res.json();
+        toast.textContent = JSON.stringify(data, null, 2);
+        await reloadState();
+      } catch (err) {
         const cmdMap = {
           verify: `python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py verify --workspace "${ws}"`,
           refresh_stale: `python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py refresh --workspace "${ws}" --mode stale_only`,
           refresh_all: `python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py refresh --workspace "${ws}" --mode force_all`,
         };
-        toast.textContent = `[Artifact Preview Mode] Run in terminal or start live UI server (python3 scripts/ui_server.py):\\n$ ${cmdMap[action]}`;
-        return;
+        toast.textContent = `Start local server (python3 scripts/ui_server.py --port 8765) or run via CLI:\\n$ ${cmdMap[action]}`;
       }
-      toast.textContent = `Running ${action} on ${ws}...`;
-      const res = await fetch('/api/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, workspace_path: ws })
-      });
-      const data = await res.json();
-      toast.textContent = JSON.stringify(data, null, 2);
-      await reloadState();
     }
 
     async function submitOverride() {
@@ -504,33 +520,45 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         alert('Please enter both Override Slug and Verified Ground-Truth Rule.');
         return;
       }
-      if (!IS_LIVE_SERVER) {
+      try {
+        await fetch(`${API_BASE}/api/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'correct',
+            workspace_path: ws,
+            override_key: key,
+            hallucination_or_mistake: mistake,
+            verified_truth: truth,
+            priority
+          })
+        });
+        document.getElementById('ov-key').value = '';
+        document.getElementById('ov-mistake').value = '';
+        document.getElementById('ov-truth').value = '';
+        await reloadState();
+      } catch (err) {
         document.getElementById('ov-cli-preview').textContent =
           `Run: python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py correct -w "${ws}" -k "${key}" --mistake "${mistake}" --truth "${truth}" --priority ${priority}`;
-        return;
       }
-      await fetch('/api/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'correct',
-          workspace_path: ws,
-          override_key: key,
-          hallucination_or_mistake: mistake,
-          verified_truth: truth,
-          priority
-        })
-      });
-      document.getElementById('ov-key').value = '';
-      document.getElementById('ov-mistake').value = '';
-      document.getElementById('ov-truth').value = '';
-      await reloadState();
     }
 
     async function reloadState() {
-      if (IS_LIVE_SERVER) {
-        const res = await fetch('/api/state');
-        STATE = await res.json();
+      const badge = document.getElementById('mode-badge');
+      try {
+        const res = await fetch(`${API_BASE}/api/state`);
+        if (res.ok) {
+          STATE = await res.json();
+          if (badge) {
+            badge.textContent = 'Live SQLite API Connected';
+            badge.className = 'text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium';
+          }
+        }
+      } catch (err) {
+        if (badge) {
+          badge.textContent = 'Offline — Run: python3 scripts/ui_server.py';
+          badge.className = 'text-xs px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium';
+        }
       }
       renderKPIs();
       renderTokens();
@@ -554,19 +582,27 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 def build_html(workspace_filter: str = "") -> str:
-    state = collect_full_state(workspace_filter)
-    return DASHBOARD_HTML_TEMPLATE.replace(
-        "__INITIAL_STATE_JSON__", json.dumps(state)
-    )
+    return DASHBOARD_HTML_TEMPLATE
 
 
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         pass
 
+    def _send_cors_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self._send_cors_headers()
+        self.end_headers()
+
     def _send_json(self, data: Any, status: int = 200) -> None:
         raw = json.dumps(data).encode("utf-8")
         self.send_response(status)
+        self._send_cors_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
@@ -579,6 +615,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         else:
             html_bytes = build_html().encode("utf-8")
             self.send_response(200)
+            self._send_cors_headers()
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(html_bytes)))
             self.end_headers()

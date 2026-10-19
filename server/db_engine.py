@@ -1399,12 +1399,26 @@ def refresh_context(
 
 # --- Multi-LLM Token Usage & Related Repo Tracking ---
 
+_SECRET_PATTERNS = [
+    (re.compile(r"([a-zA-Z0-9+.-]+://[^/\s:@]+:)([^@\s/]+)(@)"), r"\1[REDACTED]\3"),
+    (re.compile(r"\b(AVNS_[A-Za-z0-9_\-]{10,}|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_\-]{16,}|AIza[0-9A-Za-z\-_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[0-9A-Za-z\-]{10,})\b"), "[REDACTED_SECRET]"),
+]
+
+
+def redact_secrets(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = text
+    for pat, repl in _SECRET_PATTERNS:
+        cleaned = pat.sub(repl, cleaned)
+    return cleaned
+
 
 def _extract_user_request_title(content: str) -> str:
     m = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", content, re.DOTALL)
     text = m.group(1).strip() if m else content.strip()
     first_line = text.splitlines()[0].strip() if text else ""
-    return first_line[:100]
+    return redact_secrets(first_line)[:100]
 
 
 def _unquote_arg(val: Any) -> str:
@@ -1435,6 +1449,8 @@ def _upsert_conversation_usage(
     repo_info = detect_git_repo_info(ws)
     total_tokens = input_tokens + cache_read_tokens + output_tokens
     ts = updated_at or now_iso()
+    title = redact_secrets(title)
+    git_remote = redact_secrets(repo_info["git_remote"])
 
     conn.execute(
         """
@@ -1909,10 +1925,10 @@ def get_token_usage_report(
                 {
                     "conversation_id": c["conversation_id"],
                     "client_source": c["client_source"] or "antigravity",
-                    "title": c["title"] or "(Untitled conversation)",
+                    "title": redact_secrets(c["title"] or "(Untitled conversation)"),
                     "project_root": c["repo_root"] or c["workspace_path"],
                     "repo_name": c["repo_name"] or "unscoped / global",
-                    "git_remote": c["git_remote"] or "",
+                    "git_remote": redact_secrets(c["git_remote"] or ""),
                     "git_branch": c["git_branch"] or "",
                     "model_name": c["model_name"] or "auto",
                     "turn_count": int(c["turn_count"] or 0),
