@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Core SQLite Knowledge Graph & Query Cache Engine for the Antigravity context-graph plugin.
-Zero external dependencies (uses Python standard library sqlite3, ast, hashlib, json, re).
+Core SQLite Knowledge Graph, Query Cache & Token Usage Engine for the Antigravity context-graph plugin.
+Zero external dependencies (uses Python standard library sqlite3, ast, hashlib, json, re, configparser).
 """
 
 import ast
+import configparser
 import datetime
+import glob
 import hashlib
 import json
 import os
@@ -16,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 DEFAULT_DB_DIR = os.path.expanduser("~/.gemini/context-graph")
 DEFAULT_DB_PATH = os.path.join(DEFAULT_DB_DIR, "cache.db")
+DEFAULT_BRAIN_DIR = os.path.expanduser("~/.gemini/antigravity/brain")
 
 IGNORED_DIRS = {
     ".git",
@@ -77,6 +80,8 @@ def normalize_workspace(workspace_path: Optional[str]) -> str:
     cleaned = workspace_path.strip()
     if cleaned.startswith("file://"):
         cleaned = cleaned[len("file://") :]
+    if cleaned.lower() in ("global", "all", "*"):
+        return "global"
     return os.path.abspath(os.path.expanduser(cleaned))
 
 
@@ -115,6 +120,103 @@ def compute_file_signature(file_path: str) -> Tuple[Optional[str], Optional[floa
         return h.hexdigest(), st.st_mtime, st.st_size
     except OSError:
         return None, None, None
+
+
+def detect_git_repo_info(path_str: Optional[str]) -> Dict[str, str]:
+    """
+    Walks up from path_str to find a .git directory/file and extracts:
+    repo_root, repo_name, git_remote, git_branch without spawning subprocesses.
+    """
+    if not path_str or path_str == "global":
+        return {
+            "repo_root": "",
+            "repo_name": "unscoped / global",
+            "git_remote": "",
+            "git_branch": "",
+        }
+
+    curr = os.path.abspath(os.path.expanduser(path_str))
+    if os.path.isfile(curr):
+        curr = os.path.dirname(curr)
+
+    repo_root = ""
+    git_dir = ""
+    probe = curr
+    while True:
+        cand = os.path.join(probe, ".git")
+        if os.path.isdir(cand):
+            repo_root = probe
+            git_dir = cand
+            break
+        elif os.path.isfile(cand):
+            repo_root = probe
+            try:
+                with open(cand, "r", encoding="utf-8", errors="replace") as f:
+                    line = f.readline().strip()
+                if line.startswith("gitdir:"):
+                    rel_git = line.split(":", 1)[1].strip()
+                    git_dir = os.path.abspath(os.path.join(probe, rel_git))
+            except OSError:
+                pass
+            break
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        probe = parent
+
+    if not repo_root:
+        return {
+            "repo_root": curr,
+            "repo_name": os.path.basename(curr) or curr,
+            "git_remote": "",
+            "git_branch": "",
+        }
+
+    git_branch = ""
+    git_remote = ""
+    if git_dir and os.path.isdir(git_dir):
+        head_file = os.path.join(git_dir, "HEAD")
+        if os.path.isfile(head_file):
+            try:
+                with open(head_file, "r", encoding="utf-8", errors="replace") as f:
+                    head_val = f.readline().strip()
+                if head_val.startswith("ref: refs/heads/"):
+                    git_branch = head_val[len("ref: refs/heads/") :]
+                else:
+                    git_branch = head_val[:12]
+            except OSError:
+                pass
+
+        cfg_file = os.path.join(git_dir, "config")
+        if os.path.isfile(cfg_file):
+            try:
+                cp = configparser.ConfigParser()
+                cp.read(cfg_file, encoding="utf-8")
+                if 'remote "origin"' in cp and "url" in cp['remote "origin"']:
+                    git_remote = cp['remote "origin"']["url"].strip()
+                else:
+                    for sec in cp.sections():
+                        if sec.startswith("remote ") and "url" in cp[sec]:
+                            git_remote = cp[sec]["url"].strip()
+                            break
+            except Exception:
+                pass
+
+    repo_name = os.path.basename(repo_root)
+    if git_remote:
+        cleaned_url = git_remote.rstrip("/")
+        if cleaned_url.endswith(".git"):
+            cleaned_url = cleaned_url[:-4]
+        parts = re.split(r"[:/]", cleaned_url)
+        if len(parts) >= 2:
+            repo_name = f"{parts[-2]}/{parts[-1]}"
+
+    return {
+        "repo_root": repo_root,
+        "repo_name": repo_name,
+        "git_remote": git_remote,
+        "git_branch": git_branch,
+    }
 
 
 def get_connection(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
@@ -182,10 +284,32 @@ def init_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS conversation_usage (
+            conversation_id TEXT PRIMARY KEY,
+            workspace_path TEXT NOT NULL,
+            repo_root TEXT DEFAULT '',
+            repo_name TEXT DEFAULT '',
+            git_remote TEXT DEFAULT '',
+            git_branch TEXT DEFAULT '',
+            model_name TEXT DEFAULT '',
+            title TEXT DEFAULT '',
+            turn_count INTEGER DEFAULT 0,
+            input_tokens INTEGER DEFAULT 0,
+            cache_read_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            total_tokens INTEGER DEFAULT 0,
+            transcript_path TEXT DEFAULT '',
+            transcript_mtime REAL DEFAULT 0,
+            started_at TEXT DEFAULT '',
+            updated_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_files_workspace ON files(workspace_path);
         CREATE INDEX IF NOT EXISTS idx_rel_workspace_src ON relationships(workspace_path, source_file);
         CREATE INDEX IF NOT EXISTS idx_rel_workspace_tgt ON relationships(workspace_path, target_file);
         CREATE INDEX IF NOT EXISTS idx_queries_workspace ON cached_queries(workspace_path);
+        CREATE INDEX IF NOT EXISTS idx_conv_usage_repo ON conversation_usage(repo_root);
+        CREATE INDEX IF NOT EXISTS idx_conv_usage_ws ON conversation_usage(workspace_path);
         """
     )
     conn.commit()
@@ -609,8 +733,11 @@ def get_overview(workspace_path: str, max_items: int = 50) -> Dict[str, Any]:
             for q in query_rows
         ]
 
+        repo_info = detect_git_repo_info(ws)
+
         return {
             "workspace_path": ws,
+            "repo_info": repo_info,
             "stats": {
                 "total_cached_files": len(files_out),
                 "fresh_files": fresh_count,
@@ -712,6 +839,379 @@ def search_cache(
             "matched_files": matched_files,
             "matched_relationships": matched_rels,
             "matched_queries": matched_queries,
+        }
+    finally:
+        conn.close()
+
+
+# --- Token Usage & Related Repo Tracking ---
+
+
+def _extract_user_request_title(content: str) -> str:
+    m = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", content, re.DOTALL)
+    text = m.group(1).strip() if m else content.strip()
+    first_line = text.splitlines()[0].strip() if text else ""
+    return first_line[:100]
+
+
+def _unquote_arg(val: Any) -> str:
+    if not isinstance(val, str):
+        return ""
+    s = val.strip()
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        s = s[1:-1]
+    return s
+
+
+def sync_transcript_usage(
+    transcript_path: str,
+    conversation_id: str = "",
+    workspace_path: str = "",
+    model_name: str = "",
+    conn: Optional[sqlite3.Connection] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Parses an Antigravity transcript.jsonl file, sums input_tokens, cache_read_tokens,
+    and output_tokens across all PLANNER_RESPONSE steps, infers the project/git repo if
+    workspace_path is not explicitly set, and upserts into conversation_usage.
+    """
+    if not transcript_path or not os.path.isfile(transcript_path):
+        return None
+
+    try:
+        st_mtime = os.path.getmtime(transcript_path)
+    except OSError:
+        return None
+
+    if not conversation_id:
+        # Infer from ~/.gemini/antigravity/brain/<conv-id>/.system_generated/logs/transcript.jsonl
+        parts = os.path.normpath(transcript_path).split(os.sep)
+        if "brain" in parts:
+            idx = parts.index("brain")
+            if idx + 1 < len(parts):
+                conversation_id = parts[idx + 1]
+        if not conversation_id:
+            conversation_id = hashlib.sha256(transcript_path.encode("utf-8")).hexdigest()[:16]
+
+    own_conn = False
+    if conn is None:
+        conn = get_connection()
+        own_conn = True
+
+    try:
+        existing = conn.execute(
+            "SELECT transcript_mtime, workspace_path, model_name FROM conversation_usage WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchone()
+
+        if (
+            existing
+            and existing["transcript_mtime"]
+            and abs(st_mtime - existing["transcript_mtime"]) < 0.001
+            and (not workspace_path or workspace_path == "global" or existing["workspace_path"] != "global")
+        ):
+            return None
+
+        input_tokens = 0
+        cache_read_tokens = 0
+        output_tokens = 0
+        turn_count = 0
+        title = ""
+        started_at = ""
+        last_step_at = ""
+        inferred_paths: List[str] = []
+
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    step = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                created_at = step.get("created_at", "")
+                if created_at:
+                    if not started_at:
+                        started_at = created_at
+                    last_step_at = created_at
+
+                stype = step.get("type", "")
+                content = step.get("content", "")
+
+                if stype == "USER_INPUT" and not title and content:
+                    title = _extract_user_request_title(content)
+
+                if not model_name and "USER_SETTINGS_CHANGE" in content:
+                    m_mod = re.search(r"Model Selection` from .*? to ([^\.\n]+)", content)
+                    if m_mod:
+                        model_name = m_mod.group(1).strip()
+
+                if stype == "PLANNER_RESPONSE":
+                    in_tok = int(step.get("input_tokens") or 0)
+                    cr_tok = int(step.get("cache_read_tokens") or 0)
+                    out_tok = int(step.get("output_tokens") or 0)
+                    if in_tok or cr_tok or out_tok:
+                        input_tokens += in_tok
+                        cache_read_tokens += cr_tok
+                        output_tokens += out_tok
+                        turn_count += 1
+
+                    for tc in step.get("tool_calls") or []:
+                        targs = tc.get("args") or {}
+                        for key in ("TargetFile", "AbsolutePath", "SearchPath", "Cwd", "workspace_path"):
+                            val = _unquote_arg(targs.get(key, ""))
+                            if (
+                                val
+                                and val.startswith("/")
+                                and "/.gemini/antigravity/" not in val
+                                and "/.gemini/config/" not in val
+                                and not val.startswith("/tmp")
+                            ):
+                                inferred_paths.append(val)
+
+        ws = normalize_workspace(workspace_path)
+        if ws == "global" and existing and existing["workspace_path"] != "global":
+            ws = existing["workspace_path"]
+
+        if ws == "global" and inferred_paths:
+            # Prefer a path that belongs to a git repo, or the most frequent directory
+            for p in reversed(inferred_paths):
+                info = detect_git_repo_info(p)
+                if info["repo_root"] and os.path.exists(os.path.join(info["repo_root"], ".git")):
+                    ws = info["repo_root"]
+                    break
+            if ws == "global":
+                first_p = inferred_paths[-1]
+                ws = first_p if os.path.isdir(first_p) else os.path.dirname(first_p)
+
+        repo_info = detect_git_repo_info(ws)
+        total_tokens = input_tokens + cache_read_tokens + output_tokens
+        final_model = model_name or (existing["model_name"] if existing else "auto") or "auto"
+        ts = last_step_at or now_iso()
+
+        conn.execute(
+            """
+            INSERT INTO conversation_usage (
+                conversation_id, workspace_path, repo_root, repo_name,
+                git_remote, git_branch, model_name, title,
+                turn_count, input_tokens, cache_read_tokens, output_tokens,
+                total_tokens, transcript_path, transcript_mtime, started_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                workspace_path = CASE WHEN excluded.workspace_path != 'global' THEN excluded.workspace_path ELSE conversation_usage.workspace_path END,
+                repo_root = CASE WHEN excluded.repo_root != '' THEN excluded.repo_root ELSE conversation_usage.repo_root END,
+                repo_name = CASE WHEN excluded.repo_name != 'unscoped / global' THEN excluded.repo_name ELSE conversation_usage.repo_name END,
+                git_remote = CASE WHEN excluded.git_remote != '' THEN excluded.git_remote ELSE conversation_usage.git_remote END,
+                git_branch = CASE WHEN excluded.git_branch != '' THEN excluded.git_branch ELSE conversation_usage.git_branch END,
+                model_name = CASE WHEN excluded.model_name != 'auto' THEN excluded.model_name ELSE conversation_usage.model_name END,
+                title = CASE WHEN excluded.title != '' THEN excluded.title ELSE conversation_usage.title END,
+                turn_count = excluded.turn_count,
+                input_tokens = excluded.input_tokens,
+                cache_read_tokens = excluded.cache_read_tokens,
+                output_tokens = excluded.output_tokens,
+                total_tokens = excluded.total_tokens,
+                transcript_path = excluded.transcript_path,
+                transcript_mtime = excluded.transcript_mtime,
+                started_at = CASE WHEN conversation_usage.started_at != '' THEN conversation_usage.started_at ELSE excluded.started_at END,
+                updated_at = excluded.updated_at
+            """,
+            (
+                conversation_id,
+                ws,
+                repo_info["repo_root"],
+                repo_info["repo_name"],
+                repo_info["git_remote"],
+                repo_info["git_branch"],
+                final_model,
+                title,
+                turn_count,
+                input_tokens,
+                cache_read_tokens,
+                output_tokens,
+                total_tokens,
+                transcript_path,
+                st_mtime,
+                started_at or ts,
+                ts,
+            ),
+        )
+        if own_conn:
+            conn.commit()
+        return {
+            "conversation_id": conversation_id,
+            "workspace_path": ws,
+            "repo_name": repo_info["repo_name"],
+            "turn_count": turn_count,
+            "input_tokens": input_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+        }
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def scan_all_brain_transcripts(conn: sqlite3.Connection) -> int:
+    """Scans ~/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl and syncs token usage."""
+    if not os.path.isdir(DEFAULT_BRAIN_DIR):
+        return 0
+    pattern = os.path.join(DEFAULT_BRAIN_DIR, "*", ".system_generated", "logs", "transcript.jsonl")
+    synced = 0
+    for tpath in glob.glob(pattern):
+        res = sync_transcript_usage(tpath, conn=conn)
+        if res:
+            synced += 1
+    conn.commit()
+    return synced
+
+
+def get_token_usage_report(
+    workspace_path: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """
+    Returns token usage per conversation and aggregated by project / related Git repository.
+    """
+    conn = get_connection()
+    try:
+        scan_all_brain_transcripts(conn)
+
+        params: List[Any] = []
+        where_clauses: List[str] = []
+
+        if conversation_id:
+            where_clauses.append("conversation_id = ?")
+            params.append(conversation_id.strip())
+
+        ws = normalize_workspace(workspace_path)
+        if ws != "global":
+            repo_info = detect_git_repo_info(ws)
+            target_root = repo_info["repo_root"] or ws
+            where_clauses.append("(workspace_path = ? OR repo_root = ?)")
+            params.extend([ws, target_root])
+
+        where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+        conv_rows = conn.execute(
+            f"""
+            SELECT * FROM conversation_usage
+            {where_sql}
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        ).fetchall()
+
+        repo_rows = conn.execute(
+            f"""
+            SELECT
+                CASE WHEN repo_root != '' THEN repo_root ELSE workspace_path END AS project_root,
+                repo_name,
+                git_remote,
+                git_branch,
+                COUNT(*) AS conversation_count,
+                SUM(turn_count) AS total_turns,
+                SUM(input_tokens) AS input_tokens,
+                SUM(cache_read_tokens) AS cache_read_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(total_tokens) AS total_tokens,
+                MAX(updated_at) AS last_active_at
+            FROM conversation_usage
+            {where_sql}
+            GROUP BY project_root
+            ORDER BY total_tokens DESC
+            """,
+            tuple(params),
+        ).fetchall()
+
+        by_project_repo = []
+        grand_input = 0
+        grand_cache = 0
+        grand_output = 0
+        grand_total = 0
+        grand_convs = 0
+
+        for r in repo_rows:
+            in_t = int(r["input_tokens"] or 0)
+            cr_t = int(r["cache_read_tokens"] or 0)
+            out_t = int(r["output_tokens"] or 0)
+            tot_t = int(r["total_tokens"] or 0)
+            c_cnt = int(r["conversation_count"] or 0)
+
+            grand_input += in_t
+            grand_cache += cr_t
+            grand_output += out_t
+            grand_total += tot_t
+            grand_convs += c_cnt
+
+            prompt_total = in_t + cr_t
+            cache_hit_pct = round((cr_t / prompt_total) * 100, 1) if prompt_total > 0 else 0.0
+
+            by_project_repo.append(
+                {
+                    "project_root": r["project_root"],
+                    "repo_name": r["repo_name"] or "unscoped / global",
+                    "git_remote": r["git_remote"] or "",
+                    "git_branch": r["git_branch"] or "",
+                    "conversation_count": c_cnt,
+                    "total_turns": int(r["total_turns"] or 0),
+                    "input_tokens": in_t,
+                    "cache_read_tokens": cr_t,
+                    "output_tokens": out_t,
+                    "total_tokens": tot_t,
+                    "cache_hit_rate_pct": cache_hit_pct,
+                    "last_active_at": r["last_active_at"],
+                }
+            )
+
+        conversations = []
+        for c in conv_rows:
+            in_t = int(c["input_tokens"] or 0)
+            cr_t = int(c["cache_read_tokens"] or 0)
+            out_t = int(c["output_tokens"] or 0)
+            tot_t = int(c["total_tokens"] or 0)
+            prompt_total = in_t + cr_t
+            cache_hit_pct = round((cr_t / prompt_total) * 100, 1) if prompt_total > 0 else 0.0
+
+            conversations.append(
+                {
+                    "conversation_id": c["conversation_id"],
+                    "title": c["title"] or "(Untitled conversation)",
+                    "project_root": c["repo_root"] or c["workspace_path"],
+                    "repo_name": c["repo_name"] or "unscoped / global",
+                    "git_remote": c["git_remote"] or "",
+                    "git_branch": c["git_branch"] or "",
+                    "model_name": c["model_name"] or "auto",
+                    "turn_count": int(c["turn_count"] or 0),
+                    "input_tokens": in_t,
+                    "cache_read_tokens": cr_t,
+                    "output_tokens": out_t,
+                    "total_tokens": tot_t,
+                    "cache_hit_rate_pct": cache_hit_pct,
+                    "started_at": c["started_at"],
+                    "updated_at": c["updated_at"],
+                }
+            )
+
+        grand_prompt = grand_input + grand_cache
+        grand_cache_pct = round((grand_cache / grand_prompt) * 100, 1) if grand_prompt > 0 else 0.0
+
+        return {
+            "filter_workspace": ws,
+            "grand_totals": {
+                "total_conversations": grand_convs,
+                "input_tokens": grand_input,
+                "cache_read_tokens": grand_cache,
+                "output_tokens": grand_output,
+                "total_tokens": grand_total,
+                "cache_hit_rate_pct": grand_cache_pct,
+            },
+            "by_project_repo": by_project_repo,
+            "by_conversation": conversations,
         }
     finally:
         conn.close()

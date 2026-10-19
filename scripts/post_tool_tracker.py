@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 PostToolUse Hook for the Antigravity context-graph plugin.
-Passively tracks file reads, edits, and searches so the knowledge graph stays
-in sync with agent activity without requiring extra tool calls.
+Passively tracks file reads, edits, searches, and live conversation token usage
+(linked to the project/Git repository) so the knowledge graph stays in sync.
 """
 
 import json
@@ -16,53 +16,68 @@ import db_engine
 
 
 def handle_post_tool(payload: dict) -> None:
-    if payload.get("error"):
-        return
-
-    tool_call = payload.get("toolCall") or {}
-    tool_name = tool_call.get("name", "")
-    args = tool_call.get("args") or {}
     workspace_paths = payload.get("workspacePaths") or []
     ws = db_engine.normalize_workspace(workspace_paths[0] if workspace_paths else "global")
     conv_id = payload.get("conversationId", "")
+    transcript_path = payload.get("transcriptPath", "")
+    model_name = payload.get("modelName", "")
     ts = db_engine.now_iso()
-
-    target_file = (
-        args.get("AbsolutePath")
-        or args.get("TargetFile")
-        or args.get("SearchPath")
-        or args.get("SearchDirectory")
-        or ""
-    )
 
     conn = db_engine.get_connection()
     try:
-        conn.execute(
-            """
-            INSERT INTO tool_activity (workspace_path, conversation_id, tool_name, target_file, details, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                ws,
-                conv_id,
-                tool_name,
-                target_file,
-                json.dumps(
-                    {
-                        k: v
-                        for k, v in args.items()
-                        if k
-                        not in (
-                            "CodeContent",
-                            "ReplacementContent",
-                            "TargetContent",
-                            "ReplacementChunks",
-                        )
-                    }
-                )[:500],
-                ts,
-            ),
+        # Sync live conversation token usage and Git repo association
+        if transcript_path and os.path.isfile(transcript_path):
+            db_engine.sync_transcript_usage(
+                transcript_path=transcript_path,
+                conversation_id=conv_id,
+                workspace_path=ws,
+                model_name=model_name,
+                conn=conn,
+            )
+
+        if payload.get("error"):
+            conn.commit()
+            return
+
+        tool_call = payload.get("toolCall") or {}
+        tool_name = tool_call.get("name", "")
+        args = tool_call.get("args") or {}
+
+        target_file = (
+            args.get("AbsolutePath")
+            or args.get("TargetFile")
+            or args.get("SearchPath")
+            or args.get("SearchDirectory")
+            or ""
         )
+
+        if tool_name:
+            conn.execute(
+                """
+                INSERT INTO tool_activity (workspace_path, conversation_id, tool_name, target_file, details, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ws,
+                    conv_id,
+                    tool_name,
+                    target_file,
+                    json.dumps(
+                        {
+                            k: v
+                            for k, v in args.items()
+                            if k
+                            not in (
+                                "CodeContent",
+                                "ReplacementContent",
+                                "TargetContent",
+                                "ReplacementChunks",
+                            )
+                        }
+                    )[:500],
+                    ts,
+                ),
+            )
 
         if tool_name == "view_file" and target_file:
             fp = db_engine.normalize_file_path(target_file, ws)
@@ -96,7 +111,7 @@ def handle_post_tool(payload: dict) -> None:
                         )
                         conn.execute(
                             "UPDATE files SET read_count = 1 WHERE workspace_path = ? AND file_path = ?",
-                            (ws, fp),
+                            (ts, ws, fp),
                         )
                     except Exception:
                         pass

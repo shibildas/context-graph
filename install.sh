@@ -20,6 +20,7 @@ fi
 chmod +x "${TARGET_DIR}/server/db_engine.py" \
          "${TARGET_DIR}/server/mcp_server.py" \
          "${TARGET_DIR}/scripts/session_start.py" \
-         "${TARGET_DIR}/scripts/post_tool_tracker.py"
+         "${TARGET_DIR}/scripts/post_tool_tracker.py" \
+         "${TARGET_DIR}/scripts/token_report.py"
 
 echo "Done! Restart Antigravity to activate the Context Graph & Query Cache plugin."

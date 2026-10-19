@@ -2,7 +2,7 @@
 """
 MCP Server (Stdio JSON-RPC 2.0) for the Antigravity context-graph plugin.
 Exposes tools to query and persist file summaries, code implementation relationships,
-and queried/generated LLM data so the agent avoids burning tokens re-reading files.
+queried/generated LLM data, and token usage per conversation and Git repository.
 """
 
 import json
@@ -244,6 +244,30 @@ TOOLS = [
             "required": ["workspace_path"],
         },
     },
+    {
+        "name": "cache_get_token_usage",
+        "description": (
+            "View LLM token usage (input_tokens, cache_read_tokens, output_tokens, total_tokens, and cache hit rate %) "
+            "broken down per conversation and aggregated by project / related Git repository (repo name, remote URL, branch)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Optional workspace or Git repository path to filter by. Omit or pass 'all' to view all projects/repos.",
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Optional specific conversation ID to inspect.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of conversations to return (default: 50).",
+                },
+            },
+        },
+    },
 ]
 
 
@@ -301,6 +325,12 @@ def handle_tool_call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             max_files=int(args.get("max_files", 200)),
             force=bool(args.get("force", False)),
         )
+    elif name == "cache_get_token_usage":
+        return db_engine.get_token_usage_report(
+            workspace_path=args.get("workspace_path"),
+            conversation_id=args.get("conversation_id"),
+            limit=int(args.get("limit", 50)),
+        )
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -340,7 +370,7 @@ def main() -> None:
                             "capabilities": {"tools": {}},
                             "serverInfo": {
                                 "name": "context-graph-mcp",
-                                "version": "1.0.0",
+                                "version": "1.1.0",
                             },
                         },
                     }
