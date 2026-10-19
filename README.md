@@ -123,17 +123,27 @@ python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py correct \
   --truth "DEFAULT_TIMEOUT_MS must be set to 5000 in production" \
   --priority critical
 
-# 4. List active ground-truth overrides:
-python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py overrides --workspace /path/to/repo
+# 4. Export / Import team-shareable ground-truth overrides (.context-graph/overrides.json):
+python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py export-overrides --workspace /path/to/repo
+python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py import-overrides --workspace /path/to/repo
+
+# 5. Install Git post-checkout & post-merge hooks for automatic context refresh on branch switch:
+python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py install-git-hooks --workspace /path/to/repo
 ```
 
-### 2. Multi-LLM Token Usage CLI (`scripts/token_report.py`)
+### 2. Multi-LLM Token Usage & Cost per Feature CLI (`scripts/token_report.py`)
+Automatically calculates **Actual Cost ($)** and **Saved by Prompt Cache ($)** per **Feature (Git branch / ticket ID / task)**, per **LLM client**, per **Git repository**, and per **conversation**:
 ```bash
-# View full Markdown report across all workspaces & LLM clients:
+# View full Markdown report (Cost per Feature, by Client, by Git Repo, and per Conversation):
 python3 ~/.gemini/config/plugins/context-graph/scripts/token_report.py
 
 # Filter by workspace or LLM client (antigravity | claude-code | codex-cli):
 python3 ~/.gemini/config/plugins/context-graph/scripts/token_report.py --workspace /path/to/repo --client antigravity
+```
+
+### 3. Run Automated Unit Tests
+```bash
+python3 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 ---

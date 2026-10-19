@@ -18,6 +18,9 @@ from server import db_engine
 
 
 def build_digest(workspace_path: str) -> str:
+    if workspace_path != "global" and os.path.isdir(workspace_path):
+        db_engine.import_overrides_from_file(workspace_path)
+
     overview = db_engine.get_overview(workspace_path, max_items=35)
     stats = overview["stats"]
 

@@ -122,7 +122,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
     <!-- Navigation Tabs -->
     <div class="flex flex-wrap gap-2 border-b border-[var(--border,#334155)] pb-2">
       <button onclick="switchTab('tokens')" id="tab-tokens" class="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white">
-        1. Token Usage &amp; Git Repos
+        1. Cost per Feature &amp; Token Usage
       </button>
       <button onclick="switchTab('graph')" id="tab-graph" class="px-4 py-2 rounded-lg text-sm font-medium cg-card cg-muted">
         2. 3D Data Models &amp; Context Graph
@@ -135,11 +135,39 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       </button>
     </div>
 
-    <!-- Tab 1: Token Usage -->
+    <!-- Tab 1: Cost per Feature & Token Usage -->
     <div id="view-tokens" class="space-y-6">
       <div class="cg-card rounded-xl p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <h2 class="text-base font-semibold">Token Usage by LLM Client</h2>
+          <div>
+            <h2 class="text-base font-semibold">Cost &amp; Token Usage per Feature (Git Branches &amp; Tasks)</h2>
+            <p class="text-xs cg-muted">Automatically groups conversations by normalized feature branch, ticket ID, or prompt task across repositories</p>
+          </div>
+          <input id="feature-search" oninput="renderTokens()" type="text" placeholder="Filter feature, ticket (#1643), or repo..." class="cg-input rounded-lg px-3 py-1.5 text-xs w-72" />
+        </div>
+        <div class="overflow-x-auto max-h-96 overflow-y-auto">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="border-b border-[var(--border,#334155)] text-xs cg-muted">
+                <th class="py-2 px-3">Feature / Task</th>
+                <th class="py-2 px-3">Ticket(s)</th>
+                <th class="py-2 px-3">Repo(s) &amp; Branch</th>
+                <th class="py-2 px-3 text-right">Convs</th>
+                <th class="py-2 px-3 text-right">Turns</th>
+                <th class="py-2 px-3 text-right">Total Tokens</th>
+                <th class="py-2 px-3 text-right">Cache Hit %</th>
+                <th class="py-2 px-3 text-right">Actual Cost ($)</th>
+                <th class="py-2 px-3 text-right">Saved by Cache ($)</th>
+              </tr>
+            </thead>
+            <tbody id="table-features"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="cg-card rounded-xl p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-base font-semibold">Token Usage &amp; Cost by LLM Client</h2>
           <span class="text-xs cg-muted">Automatically scanned from Antigravity, Claude Code &amp; Codex CLI transcripts</span>
         </div>
         <div class="overflow-x-auto">
@@ -154,6 +182,8 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
                 <th class="py-2 px-3 text-right">Output Tokens</th>
                 <th class="py-2 px-3 text-right">Total Tokens</th>
                 <th class="py-2 px-3 text-right">Cache Hit %</th>
+                <th class="py-2 px-3 text-right">Actual Cost ($)</th>
+                <th class="py-2 px-3 text-right">Saved by Cache ($)</th>
               </tr>
             </thead>
             <tbody id="table-clients"></tbody>
@@ -163,7 +193,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
       <div class="cg-card rounded-xl p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <h2 class="text-base font-semibold">Token Usage by Project / Related Git Repository</h2>
+          <h2 class="text-base font-semibold">Token Usage &amp; Cost by Project / Related Git Repository</h2>
           <input id="repo-search" oninput="renderTokens()" type="text" placeholder="Filter repo or branch..." class="cg-input rounded-lg px-3 py-1.5 text-xs w-64" />
         </div>
         <div class="overflow-x-auto">
@@ -179,6 +209,8 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
                 <th class="py-2 px-3 text-right">Output</th>
                 <th class="py-2 px-3 text-right">Total Tokens</th>
                 <th class="py-2 px-3 text-right">Cache Hit %</th>
+                <th class="py-2 px-3 text-right">Actual Cost ($)</th>
+                <th class="py-2 px-3 text-right">Saved ($)</th>
               </tr>
             </thead>
             <tbody id="table-repos"></tbody>
@@ -188,8 +220,8 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
       <div class="cg-card rounded-xl p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <h2 class="text-base font-semibold">Token Usage per Conversation</h2>
-          <input id="conv-search" oninput="renderTokens()" type="text" placeholder="Search prompt, repo, or ID..." class="cg-input rounded-lg px-3 py-1.5 text-xs w-72" />
+          <h2 class="text-base font-semibold">Token Usage &amp; Cost per Conversation</h2>
+          <input id="conv-search" oninput="renderTokens()" type="text" placeholder="Search feature, prompt, repo, or ID..." class="cg-input rounded-lg px-3 py-1.5 text-xs w-72" />
         </div>
         <div class="overflow-x-auto max-h-96 overflow-y-auto">
           <table class="w-full text-left border-collapse text-sm">
@@ -197,14 +229,13 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
               <tr class="border-b border-[var(--border,#334155)] text-xs cg-muted">
                 <th class="py-2 px-3">Client</th>
                 <th class="py-2 px-3">Conv ID</th>
-                <th class="py-2 px-3">Prompt / Title</th>
+                <th class="py-2 px-3">Feature / Prompt</th>
                 <th class="py-2 px-3">Project / Repo</th>
                 <th class="py-2 px-3 text-right">Turns</th>
-                <th class="py-2 px-3 text-right">Input</th>
-                <th class="py-2 px-3 text-right">Cache Read</th>
-                <th class="py-2 px-3 text-right">Output</th>
                 <th class="py-2 px-3 text-right">Total Tokens</th>
                 <th class="py-2 px-3 text-right">Hit %</th>
+                <th class="py-2 px-3 text-right">Cost ($)</th>
+                <th class="py-2 px-3 text-right">Saved ($)</th>
               </tr>
             </thead>
             <tbody id="table-convs"></tbody>
@@ -330,12 +361,17 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       token_report: {
         grand_totals: {
           total_conversations: 0,
+          total_features: 0,
           input_tokens: 0,
           cache_read_tokens: 0,
           output_tokens: 0,
           total_tokens: 0,
-          cache_hit_rate_pct: 0
+          cache_hit_rate_pct: 0,
+          estimated_cost_usd: 0,
+          uncached_cost_usd: 0,
+          estimated_cache_savings_usd: 0
         },
+        by_feature: [],
         by_client: [],
         by_project_repo: [],
         by_conversation: []
@@ -346,6 +382,10 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
     function fmtNum(n) {
       return Number(n || 0).toLocaleString();
+    }
+
+    function fmtUsd(n) {
+      return '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     function switchTab(tab) {
@@ -362,6 +402,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
     function renderKPIs() {
       const gt = STATE.token_report.grand_totals || {};
+      const featCount = gt.total_features || (STATE.token_report.by_feature || []).length;
       let totalFiles = 0, totalRels = 0, totalOverrides = 0;
       Object.values(STATE.overviews || {}).forEach(ov => {
         totalFiles += (ov.stats?.total_cached_files || 0);
@@ -370,11 +411,11 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       });
 
       const cards = [
-        { label: 'Total Tokens Tracked', val: fmtNum(gt.total_tokens), sub: `${fmtNum(gt.total_conversations)} conversations` },
-        { label: 'Cache Hit Efficiency', val: `${gt.cache_hit_rate_pct || 0}%`, sub: `${fmtNum(gt.cache_read_tokens)} cached tokens` },
-        { label: 'Input / Output Tokens', val: fmtNum(gt.input_tokens), sub: `${fmtNum(gt.output_tokens)} output tokens` },
-        { label: 'Indexed Files & Edges', val: `${totalFiles} files`, sub: `${totalRels} implementation edges` },
-        { label: 'Ground-Truth Pins', val: `${totalOverrides}`, sub: `Anti-hallucination overrides` },
+        { label: 'Est. Total Spend', val: fmtUsd(gt.estimated_cost_usd), sub: `Uncached: ${fmtUsd(gt.uncached_cost_usd)}` },
+        { label: 'Saved by Prompt Cache', val: fmtUsd(gt.estimated_cache_savings_usd), sub: `${gt.cache_hit_rate_pct || 0}% cache hit rate` },
+        { label: 'Features & Conversations', val: `${fmtNum(featCount)} features`, sub: `Across ${fmtNum(gt.total_conversations)} conversations` },
+        { label: 'Total Tokens Tracked', val: fmtNum(gt.total_tokens), sub: `${fmtNum(gt.input_tokens)} in / ${fmtNum(gt.output_tokens)} out` },
+        { label: 'Indexed Graph & Pins', val: `${totalFiles} files`, sub: `${totalRels} edges • ${totalOverrides} pins` },
       ];
 
       document.getElementById('kpi-grid').innerHTML = cards.map(c => `
@@ -388,6 +429,35 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
     function renderTokens() {
       const tr = STATE.token_report || {};
+
+      const fFilter = (document.getElementById('feature-search')?.value || '').toLowerCase();
+      const features = (tr.by_feature || []).filter(f =>
+        !fFilter ||
+        (f.feature_name || '').toLowerCase().includes(fFilter) ||
+        (f.ticket_id || '').toLowerCase().includes(fFilter) ||
+        (f.repo_name || '').toLowerCase().includes(fFilter) ||
+        (f.git_branch || '').toLowerCase().includes(fFilter)
+      );
+      const featEl = document.getElementById('table-features');
+      if (featEl) {
+        featEl.innerHTML = features.map(f => `
+          <tr class="border-b border-[var(--border,#334155)]/50">
+            <td class="py-2.5 px-3 font-semibold max-w-xs truncate" title="${(f.feature_name || '').replace(/"/g, '&quot;')}">${f.feature_name}</td>
+            <td class="py-2.5 px-3 font-mono text-xs text-amber-300">${f.ticket_id || '-'}</td>
+            <td class="py-2.5 px-3">
+              <div class="text-xs font-medium">${f.repo_name}</div>
+              <div class="text-xs font-mono text-sky-400 truncate max-w-xs">${f.git_branch || '-'}</div>
+            </td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(f.conversation_count)}</td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(f.total_turns)}</td>
+            <td class="py-2.5 px-3 text-right font-bold">${fmtNum(f.total_tokens)}</td>
+            <td class="py-2.5 px-3 text-right text-emerald-400">${f.cache_hit_rate_pct}%</td>
+            <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(f.estimated_cost_usd)}</td>
+            <td class="py-2.5 px-3 text-right font-medium text-emerald-400">${fmtUsd(f.estimated_cache_savings_usd)}</td>
+          </tr>
+        `).join('');
+      }
+
       document.getElementById('table-clients').innerHTML = (tr.by_client || []).map(c => `
         <tr class="border-b border-[var(--border,#334155)]/50">
           <td class="py-2.5 px-3 font-semibold text-indigo-400">${c.client_source}</td>
@@ -398,6 +468,8 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
           <td class="py-2.5 px-3 text-right">${fmtNum(c.output_tokens)}</td>
           <td class="py-2.5 px-3 text-right font-bold">${fmtNum(c.total_tokens)}</td>
           <td class="py-2.5 px-3 text-right text-emerald-400 font-medium">${c.cache_hit_rate_pct}%</td>
+          <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(c.estimated_cost_usd)}</td>
+          <td class="py-2.5 px-3 text-right font-medium text-emerald-400">${fmtUsd(c.estimated_cache_savings_usd)}</td>
         </tr>
       `).join('');
 
@@ -422,6 +494,8 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
           <td class="py-2.5 px-3 text-right">${fmtNum(r.output_tokens)}</td>
           <td class="py-2.5 px-3 text-right font-bold">${fmtNum(r.total_tokens)}</td>
           <td class="py-2.5 px-3 text-right text-emerald-400 font-medium">${r.cache_hit_rate_pct}%</td>
+          <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(r.estimated_cost_usd)}</td>
+          <td class="py-2.5 px-3 text-right font-medium text-emerald-400">${fmtUsd(r.estimated_cache_savings_usd)}</td>
         </tr>
       `).join('');
 
@@ -429,6 +503,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       const convs = (tr.by_conversation || []).filter(c =>
         !cFilter ||
         (c.title || '').toLowerCase().includes(cFilter) ||
+        (c.feature_name || '').toLowerCase().includes(cFilter) ||
         (c.repo_name || '').toLowerCase().includes(cFilter) ||
         (c.conversation_id || '').toLowerCase().includes(cFilter)
       );
@@ -436,14 +511,16 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         <tr class="border-b border-[var(--border,#334155)]/50">
           <td class="py-2 px-3 text-xs font-mono text-indigo-400">${c.client_source}</td>
           <td class="py-2 px-3 text-xs font-mono cg-muted">${c.conversation_id.slice(0, 8)}...</td>
-          <td class="py-2 px-3 max-w-xs truncate" title="${(c.title || '').replace(/"/g, '&quot;')}">${c.title}</td>
+          <td class="py-2 px-3 max-w-xs truncate" title="${(c.title || '').replace(/"/g, '&quot;')}">
+            <div class="font-medium truncate">${c.feature_name || c.title}</div>
+            <div class="text-xs cg-muted truncate">${c.title}</div>
+          </td>
           <td class="py-2 px-3 font-medium">${c.repo_name}</td>
           <td class="py-2 px-3 text-right">${fmtNum(c.turn_count)}</td>
-          <td class="py-2 px-3 text-right">${fmtNum(c.input_tokens)}</td>
-          <td class="py-2 px-3 text-right">${fmtNum(c.cache_read_tokens)}</td>
-          <td class="py-2 px-3 text-right">${fmtNum(c.output_tokens)}</td>
           <td class="py-2 px-3 text-right font-bold">${fmtNum(c.total_tokens)}</td>
           <td class="py-2 px-3 text-right text-emerald-400">${c.cache_hit_rate_pct}%</td>
+          <td class="py-2 px-3 text-right font-bold text-amber-300">${fmtUsd(c.estimated_cost_usd)}</td>
+          <td class="py-2 px-3 text-right font-medium text-emerald-400">${fmtUsd(c.estimated_cache_savings_usd)}</td>
         </tr>
       `).join('');
     }

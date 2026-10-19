@@ -22,59 +22,87 @@ def fmt_num(n: int) -> str:
     return f"{n:,}"
 
 
+def fmt_usd(val: float) -> str:
+    return f"${float(val or 0.0):,.2f}"
+
+
 def print_markdown_report(report: dict) -> None:
     gt = report["grand_totals"]
-    print("# Multi-LLM Token Usage Report\n")
+    print("# Multi-LLM Token Usage & Cost Report\n")
     print(
         f"**Total Conversations**: {gt['total_conversations']} | "
+        f"**Features Tracked**: {gt.get('total_features', len(report.get('by_feature', [])))} | "
         f"**Total Tokens**: `{fmt_num(gt['total_tokens'])}` "
         f"(Input: `{fmt_num(gt['input_tokens'])}`, "
         f"Cache Read: `{fmt_num(gt['cache_read_tokens'])}` [{gt['cache_hit_rate_pct']}%], "
         f"Output: `{fmt_num(gt['output_tokens'])}`)\n"
+        f"**Est. Actual Cost**: `{fmt_usd(gt.get('estimated_cost_usd', 0.0))}` | "
+        f"**Saved by Prompt Cache**: `{fmt_usd(gt.get('estimated_cache_savings_usd', 0.0))}` "
+        f"(Uncached would be `{fmt_usd(gt.get('uncached_cost_usd', 0.0))}`)\n"
     )
 
-    if report.get("by_client"):
-        print("## 1. Token Usage by LLM Client\n")
+    if report.get("by_feature"):
+        print("## 1. Cost & Token Usage per Feature (Branches & Tasks)\n")
         print(
-            "| LLM Client | Convs | Turns | Input Tokens | Cache Read Tokens | Output Tokens | Total Tokens | Cache Hit % |"
+            "| Feature / Task | Ticket(s) | Repo(s) | Branch(es) | Convs | Turns | Total Tokens | Cache Hit % | Actual Cost ($) | Saved by Cache ($) |"
         )
-        print("| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+        print("| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |")
+        for f in report["by_feature"]:
+            fname = (f["feature_name"] or "").replace("|", "\\|")[:45]
+            ticket = f.get("ticket_id") or "-"
+            repos = (f.get("repo_name") or "-").replace("|", "\\|")[:32]
+            branches = (f.get("git_branch") or "-").replace("|", "\\|")[:36]
+            print(
+                f"| **{fname}** | `{ticket}` | `{repos}` | `{branches}` | "
+                f"{f['conversation_count']} | {f['total_turns']} | "
+                f"**{fmt_num(f['total_tokens'])}** | {f['cache_hit_rate_pct']}% | "
+                f"**{fmt_usd(f.get('estimated_cost_usd', 0.0))}** | {fmt_usd(f.get('estimated_cache_savings_usd', 0.0))} |"
+            )
+        print("")
+
+    if report.get("by_client"):
+        print("## 2. Token Usage & Cost by LLM Client\n")
+        print(
+            "| LLM Client | Convs | Turns | Input Tokens | Cache Read Tokens | Output Tokens | Total Tokens | Cache Hit % | Actual Cost ($) | Saved by Cache ($) |"
+        )
+        print("| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
         for cl in report["by_client"]:
             print(
                 f"| **`{cl['client_source']}`** | {cl['conversation_count']} | {cl['total_turns']} | "
                 f"{fmt_num(cl['input_tokens'])} | {fmt_num(cl['cache_read_tokens'])} | "
-                f"{fmt_num(cl['output_tokens'])} | **{fmt_num(cl['total_tokens'])}** | {cl['cache_hit_rate_pct']}% |"
+                f"{fmt_num(cl['output_tokens'])} | **{fmt_num(cl['total_tokens'])}** | {cl['cache_hit_rate_pct']}% | "
+                f"**{fmt_usd(cl.get('estimated_cost_usd', 0.0))}** | {fmt_usd(cl.get('estimated_cache_savings_usd', 0.0))} |"
             )
         print("")
 
-    print("## 2. Token Usage by Project / Related Git Repo\n")
+    print("## 3. Token Usage & Cost by Project / Related Git Repo\n")
     print(
-        "| Project / Git Repo | Branch | Remote URL | Convs | Turns | Input Tokens | Cache Read Tokens | Output Tokens | Total Tokens | Cache Hit % |"
+        "| Project / Git Repo | Branch | Convs | Turns | Input Tokens | Cache Read Tokens | Output Tokens | Total Tokens | Cache Hit % | Actual Cost ($) | Saved ($) |"
     )
-    print("| :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    print("| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     for p in report["by_project_repo"]:
-        remote = p["git_remote"] or "-"
         branch = p["git_branch"] or "-"
         print(
-            f"| **{p['repo_name']}** (`{p['project_root']}`) | `{branch}` | `{remote}` | "
+            f"| **{p['repo_name']}** (`{p['project_root']}`) | `{branch}` | "
             f"{p['conversation_count']} | {p['total_turns']} | "
             f"{fmt_num(p['input_tokens'])} | {fmt_num(p['cache_read_tokens'])} | "
-            f"{fmt_num(p['output_tokens'])} | **{fmt_num(p['total_tokens'])}** | {p['cache_hit_rate_pct']}% |"
+            f"{fmt_num(p['output_tokens'])} | **{fmt_num(p['total_tokens'])}** | {p['cache_hit_rate_pct']}% | "
+            f"**{fmt_usd(p.get('estimated_cost_usd', 0.0))}** | {fmt_usd(p.get('estimated_cache_savings_usd', 0.0))} |"
         )
     print("")
 
-    print("## 3. Token Usage per Conversation\n")
+    print("## 4. Token Usage & Cost per Conversation\n")
     print(
-        "| Client | Conversation ID | Prompt / Title | Project / Repo | Turns | Input | Cache Read | Output | Total Tokens | Cache Hit % |"
+        "| Client | Conv ID | Feature / Prompt | Project / Repo | Turns | Total Tokens | Hit % | Cost ($) | Saved ($) |"
     )
-    print("| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    print("| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |")
     for c in report["by_conversation"]:
         short_id = c["conversation_id"][:8]
-        title = (c["title"] or "").replace("|", "\\|")[:50]
+        title = (c.get("feature_name") or c["title"] or "").replace("|", "\\|")[:46]
         print(
             f"| `{c['client_source']}` | `{short_id}...` | {title} | **{c['repo_name']}** | {c['turn_count']} | "
-            f"{fmt_num(c['input_tokens'])} | {fmt_num(c['cache_read_tokens'])} | "
-            f"{fmt_num(c['output_tokens'])} | **{fmt_num(c['total_tokens'])}** | {c['cache_hit_rate_pct']}% |"
+            f"**{fmt_num(c['total_tokens'])}** | {c['cache_hit_rate_pct']}% | "
+            f"**{fmt_usd(c.get('estimated_cost_usd', 0.0))}** | {fmt_usd(c.get('estimated_cache_savings_usd', 0.0))} |"
         )
 
 

@@ -121,6 +121,29 @@ def main() -> None:
         "--delete", action="store_true", help="Delete the entry instead of updating."
     )
 
+    # export-overrides subcommand
+    p_export = sub.add_parser(
+        "export-overrides",
+        help="Export workspace ground-truth overrides to .context-graph/overrides.json for Git sharing.",
+    )
+    p_export.add_argument("--workspace", "-w", required=True, help="Workspace path.")
+    p_export.add_argument("--file", "-f", default=None, help="Optional output JSON path.")
+
+    # import-overrides subcommand
+    p_import = sub.add_parser(
+        "import-overrides",
+        help="Import ground-truth overrides from .context-graph/overrides.json into SQLite.",
+    )
+    p_import.add_argument("--workspace", "-w", required=True, help="Workspace path.")
+    p_import.add_argument("--file", "-f", default=None, help="Optional input JSON path.")
+
+    # install-git-hooks subcommand
+    p_hooks = sub.add_parser(
+        "install-git-hooks",
+        help="Install post-checkout and post-merge Git hooks for automatic context refresh.",
+    )
+    p_hooks.add_argument("--workspace", "-w", required=True, help="Workspace / Git repo path.")
+
     args = parser.parse_args()
 
     if args.cmd == "verify":
@@ -152,6 +175,18 @@ def main() -> None:
             new_value=args.value,
             delete=args.delete,
         )
+    elif args.cmd == "export-overrides":
+        res = db_engine.export_overrides_to_file(
+            workspace_path=args.workspace,
+            file_path=args.file,
+        )
+    elif args.cmd == "import-overrides":
+        res = db_engine.import_overrides_from_file(
+            workspace_path=args.workspace,
+            file_path=args.file,
+        )
+    elif args.cmd == "install-git-hooks":
+        res = db_engine.install_git_hooks(workspace_path=args.workspace)
     else:
         res = {"status": "error", "message": "Unknown command"}
 

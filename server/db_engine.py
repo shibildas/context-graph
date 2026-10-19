@@ -1768,6 +1768,122 @@ def scan_all_llm_transcripts(conn: sqlite3.Connection) -> int:
     return synced
 
 
+DEFAULT_GIT_BRANCHES = {
+    "",
+    "-",
+    "main",
+    "master",
+    "develop",
+    "dev",
+    "staging",
+    "production",
+    "head",
+}
+
+
+def estimate_token_cost(
+    model_name: str,
+    input_tokens: int,
+    cache_read_tokens: int,
+    output_tokens: int,
+) -> Dict[str, float]:
+    """
+    Estimates LLM API cost in USD and prompt-cache savings based on model family rates (per 1M tokens).
+    """
+    m = (model_name or "auto").lower()
+    if "flash" in m:
+        in_rate, cache_rate, out_rate = 0.15, 0.0375, 0.60
+    elif "opus" in m:
+        in_rate, cache_rate, out_rate = 15.00, 1.50, 75.00
+    elif "sonnet" in m or "claude" in m:
+        in_rate, cache_rate, out_rate = 3.00, 0.30, 15.00
+    elif any(k in m for k in ("codex", "gpt", "o1", "o3", "o4")):
+        in_rate, cache_rate, out_rate = 2.50, 1.25, 10.00
+    else:
+        # Gemini Pro / Gemini 3 / Gemini 4 Argon / default
+        in_rate, cache_rate, out_rate = 1.25, 0.3125, 5.00
+
+    in_cost = (max(0, input_tokens) / 1_000_000.0) * in_rate
+    cache_cost = (max(0, cache_read_tokens) / 1_000_000.0) * cache_rate
+    out_cost = (max(0, output_tokens) / 1_000_000.0) * out_rate
+    actual_cost = in_cost + cache_cost + out_cost
+    uncached_cost = ((max(0, input_tokens) + max(0, cache_read_tokens)) / 1_000_000.0) * in_rate + out_cost
+    cache_savings = max(0.0, uncached_cost - actual_cost)
+
+    return {
+        "input_cost_usd": round(in_cost, 4),
+        "cache_read_cost_usd": round(cache_cost, 4),
+        "output_cost_usd": round(out_cost, 4),
+        "estimated_cost_usd": round(actual_cost, 2),
+        "uncached_cost_usd": round(uncached_cost, 2),
+        "estimated_cache_savings_usd": round(cache_savings, 2),
+    }
+
+
+def derive_feature_info(repo_name: str, git_branch: str, title: str) -> Dict[str, str]:
+    """
+    Infers the feature name, normalized feature key, and optional ticket ID from a conversation's
+    Git branch (preferred) or prompt title (fallback when on main/master/unscoped).
+    """
+    branch = (git_branch or "").strip()
+    repo = (repo_name or "unscoped / global").strip()
+    clean_title = redact_secrets((title or "").strip())
+
+    if branch.lower() not in DEFAULT_GIT_BRANCHES:
+        # Check for "<ticket_num>-<feature-slug>" e.g. "1643-foundation-batch-associate-and-quit-logic"
+        m = re.match(r"^(\d+)[-_](.+)$", branch)
+        if m:
+            ticket = f"#{m.group(1)}"
+            slug = m.group(2).strip()
+            return {
+                "feature_key": f"branch::{slug.lower()}",
+                "feature_name": slug,
+                "ticket_id": ticket,
+                "feature_source": "git_branch",
+            }
+        # Check for "<author_or_type>/<feature-slug>" e.g. "shibil/paymentgateway-changes" or "feat/login"
+        if "/" in branch:
+            prefix, slug = branch.split("/", 1)
+            slug_clean = slug.strip() or branch
+            m2 = re.match(r"^(\d+)[-_](.+)$", slug_clean)
+            if m2:
+                return {
+                    "feature_key": f"branch::{m2.group(2).lower()}",
+                    "feature_name": m2.group(2),
+                    "ticket_id": f"#{m2.group(1)}",
+                    "feature_source": "git_branch",
+                }
+            return {
+                "feature_key": f"branch::{slug_clean.lower()}",
+                "feature_name": f"{slug_clean} ({prefix})",
+                "ticket_id": "",
+                "feature_source": "git_branch",
+            }
+        return {
+            "feature_key": f"branch::{branch.lower()}",
+            "feature_name": branch,
+            "ticket_id": "",
+            "feature_source": "git_branch",
+        }
+
+    # On default branch (main/master/empty): group by prompt task or repo main
+    if clean_title and clean_title != "(Untitled conversation)":
+        short_task = re.sub(r"\s+", " ", clean_title)[:60].strip()
+        return {
+            "feature_key": f"task::{repo.lower()}::{short_task[:40].lower()}",
+            "feature_name": short_task,
+            "ticket_id": "",
+            "feature_source": "prompt_task",
+        }
+
+    return {
+        "feature_key": f"repo::{repo.lower()}::main",
+        "feature_name": f"{repo} (main)",
+        "ticket_id": "",
+        "feature_source": "default_branch",
+    }
+
+
 def get_token_usage_report(
     workspace_path: Optional[str] = None,
     conversation_id: Optional[str] = None,
@@ -1775,7 +1891,8 @@ def get_token_usage_report(
     limit: int = 50,
 ) -> Dict[str, Any]:
     """
-    Returns token usage per conversation, per LLM client, and aggregated by project / Git repository.
+    Returns token usage and estimated USD cost per feature, per conversation, per LLM client,
+    and aggregated by project / Git repository.
     """
     conn = get_connection()
     try:
@@ -1801,15 +1918,16 @@ def get_token_usage_report(
 
         where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
-        conv_rows = conn.execute(
+        all_conv_rows = conn.execute(
             f"""
             SELECT * FROM conversation_usage
             {where_sql}
             ORDER BY updated_at DESC
-            LIMIT ?
             """,
-            (*params, limit),
+            tuple(params),
         ).fetchall()
+
+        conv_rows = all_conv_rows[:limit]
 
         repo_rows = conn.execute(
             f"""
@@ -1851,6 +1969,116 @@ def get_token_usage_report(
             tuple(params),
         ).fetchall()
 
+        # Aggregate accurate per-conversation costs and group by feature, repo, and client
+        feature_map: Dict[str, Dict[str, Any]] = {}
+        repo_cost_map: Dict[str, Dict[str, float]] = {}
+        client_cost_map: Dict[str, Dict[str, float]] = {}
+        grand_cost = 0.0
+        grand_uncached_cost = 0.0
+        grand_savings = 0.0
+        grand_in_cost = 0.0
+        grand_cache_cost = 0.0
+        grand_out_cost = 0.0
+
+        for c in all_conv_rows:
+            in_t = int(c["input_tokens"] or 0)
+            cr_t = int(c["cache_read_tokens"] or 0)
+            out_t = int(c["output_tokens"] or 0)
+            tot_t = int(c["total_tokens"] or 0)
+            turns = int(c["turn_count"] or 0)
+            model = c["model_name"] or "auto"
+            c_src = c["client_source"] or "antigravity"
+            proj_root = c["repo_root"] or c["workspace_path"]
+            r_name = c["repo_name"] or "unscoped / global"
+            g_branch = c["git_branch"] or ""
+            c_title = redact_secrets(c["title"] or "(Untitled conversation)")
+            updated = c["updated_at"] or ""
+
+            cost = estimate_token_cost(model, in_t, cr_t, out_t)
+            grand_in_cost += cost["input_cost_usd"]
+            grand_cache_cost += cost["cache_read_cost_usd"]
+            grand_out_cost += cost["output_cost_usd"]
+            grand_cost += cost["input_cost_usd"] + cost["cache_read_cost_usd"] + cost["output_cost_usd"]
+            grand_uncached_cost += cost["uncached_cost_usd"]
+            grand_savings += cost["estimated_cache_savings_usd"]
+
+            rc = repo_cost_map.setdefault(proj_root, {"cost": 0.0, "uncached": 0.0, "savings": 0.0})
+            rc["cost"] += cost["input_cost_usd"] + cost["cache_read_cost_usd"] + cost["output_cost_usd"]
+            rc["uncached"] += cost["uncached_cost_usd"]
+            rc["savings"] += cost["estimated_cache_savings_usd"]
+
+            cc = client_cost_map.setdefault(c_src, {"cost": 0.0, "uncached": 0.0, "savings": 0.0})
+            cc["cost"] += cost["input_cost_usd"] + cost["cache_read_cost_usd"] + cost["output_cost_usd"]
+            cc["uncached"] += cost["uncached_cost_usd"]
+            cc["savings"] += cost["estimated_cache_savings_usd"]
+
+            f_info = derive_feature_info(r_name, g_branch, c_title)
+            fkey = f_info["feature_key"]
+            if fkey not in feature_map:
+                feature_map[fkey] = {
+                    "feature_key": fkey,
+                    "feature_name": f_info["feature_name"],
+                    "feature_source": f_info["feature_source"],
+                    "tickets": [],
+                    "repos": [],
+                    "branches": [],
+                    "conversation_count": 0,
+                    "total_turns": 0,
+                    "input_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "output_tokens": 0,
+                    "total_tokens": 0,
+                    "input_cost_usd": 0.0,
+                    "cache_read_cost_usd": 0.0,
+                    "output_cost_usd": 0.0,
+                    "estimated_cost_usd": 0.0,
+                    "uncached_cost_usd": 0.0,
+                    "estimated_cache_savings_usd": 0.0,
+                    "last_active_at": updated,
+                }
+            f_entry = feature_map[fkey]
+            if f_info["ticket_id"] and f_info["ticket_id"] not in f_entry["tickets"]:
+                f_entry["tickets"].append(f_info["ticket_id"])
+            if r_name and r_name not in f_entry["repos"]:
+                f_entry["repos"].append(r_name)
+            if g_branch and g_branch not in f_entry["branches"]:
+                f_entry["branches"].append(g_branch)
+            f_entry["conversation_count"] += 1
+            f_entry["total_turns"] += turns
+            f_entry["input_tokens"] += in_t
+            f_entry["cache_read_tokens"] += cr_t
+            f_entry["output_tokens"] += out_t
+            f_entry["total_tokens"] += tot_t
+            f_entry["input_cost_usd"] += cost["input_cost_usd"]
+            f_entry["cache_read_cost_usd"] += cost["cache_read_cost_usd"]
+            f_entry["output_cost_usd"] += cost["output_cost_usd"]
+            f_entry["estimated_cost_usd"] += (
+                cost["input_cost_usd"] + cost["cache_read_cost_usd"] + cost["output_cost_usd"]
+            )
+            f_entry["uncached_cost_usd"] += cost["uncached_cost_usd"]
+            f_entry["estimated_cache_savings_usd"] += cost["estimated_cache_savings_usd"]
+            if updated > (f_entry["last_active_at"] or ""):
+                f_entry["last_active_at"] = updated
+
+        by_feature = []
+        for f_entry in feature_map.values():
+            p_tot = f_entry["input_tokens"] + f_entry["cache_read_tokens"]
+            f_entry["cache_hit_rate_pct"] = (
+                round((f_entry["cache_read_tokens"] / p_tot) * 100, 1) if p_tot > 0 else 0.0
+            )
+            f_entry["input_cost_usd"] = round(f_entry["input_cost_usd"], 2)
+            f_entry["cache_read_cost_usd"] = round(f_entry["cache_read_cost_usd"], 2)
+            f_entry["output_cost_usd"] = round(f_entry["output_cost_usd"], 2)
+            f_entry["estimated_cost_usd"] = round(f_entry["estimated_cost_usd"], 2)
+            f_entry["uncached_cost_usd"] = round(f_entry["uncached_cost_usd"], 2)
+            f_entry["estimated_cache_savings_usd"] = round(f_entry["estimated_cache_savings_usd"], 2)
+            f_entry["repo_name"] = ", ".join(f_entry["repos"]) if f_entry["repos"] else "unscoped / global"
+            f_entry["git_branch"] = ", ".join(f_entry["branches"]) if f_entry["branches"] else "-"
+            f_entry["ticket_id"] = ", ".join(f_entry["tickets"]) if f_entry["tickets"] else ""
+            by_feature.append(f_entry)
+
+        by_feature.sort(key=lambda x: (x["estimated_cost_usd"], x["total_tokens"]), reverse=True)
+
         by_project_repo = []
         grand_input = 0
         grand_cache = 0
@@ -1873,6 +2101,7 @@ def get_token_usage_report(
 
             prompt_total = in_t + cr_t
             cache_hit_pct = round((cr_t / prompt_total) * 100, 1) if prompt_total > 0 else 0.0
+            rc = repo_cost_map.get(r["project_root"], {"cost": 0.0, "uncached": 0.0, "savings": 0.0})
 
             by_project_repo.append(
                 {
@@ -1887,6 +2116,9 @@ def get_token_usage_report(
                     "output_tokens": out_t,
                     "total_tokens": tot_t,
                     "cache_hit_rate_pct": cache_hit_pct,
+                    "estimated_cost_usd": round(rc["cost"], 2),
+                    "uncached_cost_usd": round(rc["uncached"], 2),
+                    "estimated_cache_savings_usd": round(rc["savings"], 2),
                     "last_active_at": r["last_active_at"],
                 }
             )
@@ -1899,9 +2131,11 @@ def get_token_usage_report(
             tot_t = int(cl["total_tokens"] or 0)
             prompt_total = in_t + cr_t
             cache_hit_pct = round((cr_t / prompt_total) * 100, 1) if prompt_total > 0 else 0.0
+            c_src = cl["client_source"] or "antigravity"
+            cc = client_cost_map.get(c_src, {"cost": 0.0, "uncached": 0.0, "savings": 0.0})
             by_client.append(
                 {
-                    "client_source": cl["client_source"] or "antigravity",
+                    "client_source": c_src,
                     "conversation_count": int(cl["conversation_count"] or 0),
                     "total_turns": int(cl["total_turns"] or 0),
                     "input_tokens": in_t,
@@ -1909,6 +2143,9 @@ def get_token_usage_report(
                     "output_tokens": out_t,
                     "total_tokens": tot_t,
                     "cache_hit_rate_pct": cache_hit_pct,
+                    "estimated_cost_usd": round(cc["cost"], 2),
+                    "uncached_cost_usd": round(cc["uncached"], 2),
+                    "estimated_cache_savings_usd": round(cc["savings"], 2),
                 }
             )
 
@@ -1920,23 +2157,34 @@ def get_token_usage_report(
             tot_t = int(c["total_tokens"] or 0)
             prompt_total = in_t + cr_t
             cache_hit_pct = round((cr_t / prompt_total) * 100, 1) if prompt_total > 0 else 0.0
+            c_title = redact_secrets(c["title"] or "(Untitled conversation)")
+            r_name = c["repo_name"] or "unscoped / global"
+            g_branch = c["git_branch"] or ""
+            model = c["model_name"] or "auto"
+            cost = estimate_token_cost(model, in_t, cr_t, out_t)
+            f_info = derive_feature_info(r_name, g_branch, c_title)
 
             conversations.append(
                 {
                     "conversation_id": c["conversation_id"],
                     "client_source": c["client_source"] or "antigravity",
-                    "title": redact_secrets(c["title"] or "(Untitled conversation)"),
+                    "title": c_title,
+                    "feature_name": f_info["feature_name"],
+                    "ticket_id": f_info["ticket_id"],
                     "project_root": c["repo_root"] or c["workspace_path"],
-                    "repo_name": c["repo_name"] or "unscoped / global",
+                    "repo_name": r_name,
                     "git_remote": redact_secrets(c["git_remote"] or ""),
-                    "git_branch": c["git_branch"] or "",
-                    "model_name": c["model_name"] or "auto",
+                    "git_branch": g_branch,
+                    "model_name": model,
                     "turn_count": int(c["turn_count"] or 0),
                     "input_tokens": in_t,
                     "cache_read_tokens": cr_t,
                     "output_tokens": out_t,
                     "total_tokens": tot_t,
                     "cache_hit_rate_pct": cache_hit_pct,
+                    "estimated_cost_usd": cost["estimated_cost_usd"],
+                    "uncached_cost_usd": cost["uncached_cost_usd"],
+                    "estimated_cache_savings_usd": cost["estimated_cache_savings_usd"],
                     "started_at": c["started_at"],
                     "updated_at": c["updated_at"],
                 }
@@ -1949,12 +2197,20 @@ def get_token_usage_report(
             "filter_workspace": ws,
             "grand_totals": {
                 "total_conversations": grand_convs,
+                "total_features": len(by_feature),
                 "input_tokens": grand_input,
                 "cache_read_tokens": grand_cache,
                 "output_tokens": grand_output,
                 "total_tokens": grand_total,
                 "cache_hit_rate_pct": grand_cache_pct,
+                "input_cost_usd": round(grand_in_cost, 2),
+                "cache_read_cost_usd": round(grand_cache_cost, 2),
+                "output_cost_usd": round(grand_out_cost, 2),
+                "estimated_cost_usd": round(grand_cost, 2),
+                "uncached_cost_usd": round(grand_uncached_cost, 2),
+                "estimated_cache_savings_usd": round(grand_savings, 2),
             },
+            "by_feature": by_feature,
             "by_client": by_client,
             "by_project_repo": by_project_repo,
             "by_conversation": conversations,
@@ -2217,3 +2473,160 @@ def auto_index_workspace(
         }
     finally:
         conn.close()
+
+
+def get_ground_truth_overrides(workspace_path: str) -> List[Dict[str, Any]]:
+    """
+    Returns all active ground-truth overrides for a workspace (including global overrides).
+    """
+    ws = normalize_workspace(workspace_path)
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM ground_truth_overrides
+            WHERE (workspace_path = ? OR workspace_path = 'global') AND active = 1
+            ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 ELSE 3 END, updated_at DESC
+            """,
+            (ws,),
+        ).fetchall()
+        return [
+            {
+                "override_key": r["override_key"],
+                "hallucination_or_mistake": r["hallucination_or_mistake"],
+                "verified_truth": r["verified_truth"],
+                "scope_files": [
+                    to_rel_path(f, ws) for f in json.loads(r["scope_files_json"] or "[]")
+                ],
+                "priority": r["priority"],
+                "updated_at": r["updated_at"],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def export_overrides_to_file(
+    workspace_path: str, file_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Exports active ground-truth overrides for a workspace to `.context-graph/overrides.json`
+    (or a custom file path) so team members can commit and share verified domain rules in Git.
+    """
+    ws = normalize_workspace(workspace_path)
+    out_file = (
+        os.path.abspath(os.path.expanduser(file_path))
+        if file_path
+        else os.path.join(ws, ".context-graph", "overrides.json")
+    )
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    overrides = get_ground_truth_overrides(ws)
+    payload = {
+        "schema_version": "1.3.0",
+        "exported_at": now_iso(),
+        "overrides": [
+            {
+                "override_key": o["override_key"],
+                "hallucination_or_mistake": o.get("hallucination_or_mistake", ""),
+                "verified_truth": o["verified_truth"],
+                "scope_files": o.get("scope_files", []),
+                "priority": o.get("priority", "high"),
+            }
+            for o in overrides
+        ],
+    }
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    return {
+        "status": "ok",
+        "workspace_path": ws,
+        "exported_count": len(payload["overrides"]),
+        "file_path": out_file,
+    }
+
+
+def import_overrides_from_file(
+    workspace_path: str, file_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Imports ground-truth overrides from `.context-graph/overrides.json` (or a custom file path)
+    into the local SQLite database.
+    """
+    ws = normalize_workspace(workspace_path)
+    in_file = (
+        os.path.abspath(os.path.expanduser(file_path))
+        if file_path
+        else os.path.join(ws, ".context-graph", "overrides.json")
+    )
+    if not os.path.isfile(in_file):
+        return {
+            "status": "skipped",
+            "workspace_path": ws,
+            "imported_count": 0,
+            "file_path": in_file,
+        }
+    with open(in_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    items = data.get("overrides", []) if isinstance(data, dict) else []
+    imported = 0
+    for item in items:
+        if not isinstance(item, dict) or not item.get("override_key") or not item.get("verified_truth"):
+            continue
+        record_correction(
+            workspace_path=ws,
+            override_key=item["override_key"],
+            verified_truth=item["verified_truth"],
+            hallucination_or_mistake=item.get("hallucination_or_mistake", ""),
+            scope_files=item.get("scope_files", []),
+            priority=item.get("priority", "high"),
+        )
+        imported += 1
+    return {
+        "status": "ok",
+        "workspace_path": ws,
+        "imported_count": imported,
+        "file_path": in_file,
+    }
+
+
+def install_git_hooks(workspace_path: str) -> Dict[str, Any]:
+    """
+    Installs lightweight `post-checkout` and `post-merge` Git hooks in the target repository
+    so switching branches or pulling changes automatically refreshes stale files in the background.
+    """
+    ws = normalize_workspace(workspace_path)
+    repo_info = detect_git_repo_info(ws)
+    repo_root = repo_info["repo_root"] or ws
+    hooks_dir = os.path.join(repo_root, ".git", "hooks")
+    if not os.path.isdir(hooks_dir):
+        return {
+            "status": "error",
+            "message": f"No .git/hooks directory found at {hooks_dir}",
+        }
+    plugin_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ctl_script = os.path.join(plugin_root, "scripts", "context_ctl.py")
+    marker = "# [context-graph-auto-refresh]"
+    hook_cmd = (
+        f"\n{marker}\n"
+        f'python3 "{ctl_script}" refresh --workspace "{repo_root}" --mode stale_only >/dev/null 2>&1 &\n'
+    )
+    installed = []
+    for hook_name in ("post-checkout", "post-merge"):
+        hp = os.path.join(hooks_dir, hook_name)
+        existing = ""
+        if os.path.isfile(hp):
+            with open(hp, "r", encoding="utf-8", errors="replace") as f:
+                existing = f.read()
+        if marker not in existing:
+            prefix = existing if existing.startswith("#!") else "#!/usr/bin/env sh\n" + existing
+            with open(hp, "w", encoding="utf-8") as f:
+                f.write(prefix.rstrip() + "\n" + hook_cmd)
+            os.chmod(hp, 0o755)
+        installed.append(hp)
+    return {
+        "status": "ok",
+        "repo_root": repo_root,
+        "installed_hooks": installed,
+    }
+
