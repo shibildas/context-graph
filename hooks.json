@@ -1,0 +1,24 @@
+{
+  "context-graph-hooks": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 ./scripts/session_start.py",
+        "timeout": 10
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "view_file|replace_file_content|multi_replace_file_content|write_to_file|grep_search|find_by_name",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./scripts/post_tool_tracker.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

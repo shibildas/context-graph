@@ -1,0 +1,12 @@
+{
+  "name": "context-graph",
+  "displayName": "Context Graph & Query Cache",
+  "description": "Persists file summaries, code implementation relationships, queried data, and generated insights in a local SQLite knowledge graph so Antigravity can understand the codebase without burning tokens re-reading files.",
+  "version": "1.0.0",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Index this workspace into the context graph and show the module relationship map",
+    "Search the context cache for previously queried data and implementation relationships",
+    "Check which cached files are stale and refresh only the modified files"
+  ]
+}

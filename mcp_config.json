@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "context-graph-mcp": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "for p in \"./.agents/plugins/context-graph/server/mcp_server.py\" \"./.agent/plugins/context-graph/server/mcp_server.py\" \"${HOME}/.gemini/config/plugins/context-graph/server/mcp_server.py\" \"./server/mcp_server.py\"; do if [ -f \"$p\" ]; then exec python3 \"$p\"; fi; done; echo 'context-graph mcp_server.py not found' >&2; exit 1"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
