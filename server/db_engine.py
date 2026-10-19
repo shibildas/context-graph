@@ -84,6 +84,16 @@ def now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _safe_abspath(path_str: str) -> str:
+    expanded = os.path.expanduser(path_str)
+    if os.path.isabs(expanded):
+        return os.path.normpath(expanded)
+    try:
+        return os.path.abspath(expanded)
+    except FileNotFoundError:
+        return os.path.normpath(os.path.join(os.path.expanduser("~"), expanded))
+
+
 def normalize_workspace(workspace_path: Optional[str]) -> str:
     if not workspace_path:
         return "global"
@@ -92,7 +102,7 @@ def normalize_workspace(workspace_path: Optional[str]) -> str:
         cleaned = cleaned[len("file://") :]
     if cleaned.lower() in ("global", "all", "*"):
         return "global"
-    return os.path.abspath(os.path.expanduser(cleaned))
+    return _safe_abspath(cleaned)
 
 
 def normalize_file_path(file_path: str, workspace_path: Optional[str] = None) -> str:
@@ -102,7 +112,7 @@ def normalize_file_path(file_path: str, workspace_path: Optional[str] = None) ->
     expanded = os.path.expanduser(cleaned)
     if not os.path.isabs(expanded) and workspace_path and workspace_path != "global":
         expanded = os.path.join(normalize_workspace(workspace_path), expanded)
-    return os.path.abspath(expanded)
+    return _safe_abspath(expanded)
 
 
 def to_rel_path(file_path: str, workspace_path: str) -> str:

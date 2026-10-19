@@ -16,7 +16,8 @@ chmod +x "${REPO_DIR}/server/db_engine.py" \
          "${REPO_DIR}/scripts/session_start.py" \
          "${REPO_DIR}/scripts/post_tool_tracker.py" \
          "${REPO_DIR}/scripts/token_report.py" \
-         "${REPO_DIR}/scripts/context_ctl.py"
+         "${REPO_DIR}/scripts/context_ctl.py" \
+         "${REPO_DIR}/scripts/ui_server.py"
 
 # 1. Install into Google Antigravity
 mkdir -p "${HOME}/.gemini/config/plugins"
@@ -67,6 +68,7 @@ fi
 
 echo ""
 echo "Installation complete!"
-echo "- View token usage report: python3 ${AGY_TARGET}/scripts/token_report.py"
-echo "- Override/Refresh/Verify CLI: python3 ${AGY_TARGET}/scripts/context_ctl.py --help"
+echo "- Launch Interactive Web UI: python3 ${AGY_TARGET}/scripts/ui_server.py --port 8765"
+echo "- View token usage CLI:      python3 ${AGY_TARGET}/scripts/token_report.py"
+echo "- Override/Refresh CLI:      python3 ${AGY_TARGET}/scripts/context_ctl.py --help"
 echo "- Restart your LLM client (Antigravity / Claude Code / Cursor) to load context-graph-mcp."

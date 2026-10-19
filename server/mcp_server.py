@@ -400,20 +400,21 @@ TOOLS = [
 
 
 def handle_tool_call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    ws = args.get("workspace_path") or args.get("workspace") or "global"
     if name == "cache_get_overview":
         return db_engine.get_overview(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             max_items=int(args.get("max_items", 50)),
         )
     elif name == "cache_get_file_context":
         return db_engine.get_file_context(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             file_path=args["file_path"],
             depth=int(args.get("depth", 1)),
         )
     elif name == "cache_upsert_file":
         return db_engine.upsert_file(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             file_path=args["file_path"],
             summary=args.get("summary", ""),
             symbols=args.get("symbols"),
@@ -423,7 +424,7 @@ def handle_tool_call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         )
     elif name == "cache_add_relationship":
         return db_engine.add_relationship(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             source_file=args["source_file"],
             target_file=args["target_file"],
             relation_type=args["relation_type"],
@@ -431,7 +432,7 @@ def handle_tool_call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         )
     elif name == "cache_store_query":
         return db_engine.store_query(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             query_key=args["query_key"],
             result_summary=args["result_summary"],
             query_text=args.get("query_text", ""),
@@ -443,19 +444,19 @@ def handle_tool_call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         )
     elif name == "cache_search":
         return db_engine.search_cache(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             query=args["query"],
             category=args.get("category", "all"),
         )
     elif name == "cache_auto_index_workspace":
         return db_engine.auto_index_workspace(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             max_files=int(args.get("max_files", 200)),
             force=bool(args.get("force", False)),
         )
     elif name == "cache_record_correction":
         return db_engine.record_correction(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             override_key=args["override_key"],
             verified_truth=args["verified_truth"],
             hallucination_or_mistake=args.get("hallucination_or_mistake", ""),
@@ -464,19 +465,19 @@ def handle_tool_call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         )
     elif name == "cache_verify_and_fix_hallucinations":
         return db_engine.verify_and_fix_hallucinations(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             file_path=args.get("file_path"),
             auto_fix=bool(args.get("auto_fix", True)),
         )
     elif name == "cache_refresh_context":
         return db_engine.refresh_context(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             mode=args.get("mode", "stale_only"),
             target=args.get("target"),
         )
     elif name == "cache_override_entry":
         return db_engine.override_or_delete_entry(
-            workspace_path=args.get("workspace_path", "global"),
+            workspace_path=ws,
             target_type=args["target_type"],
             target_key=args["target_key"],
             new_value=args.get("new_value", ""),
@@ -485,7 +486,7 @@ def handle_tool_call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         )
     elif name == "cache_get_token_usage":
         return db_engine.get_token_usage_report(
-            workspace_path=args.get("workspace_path"),
+            workspace_path=args.get("workspace_path") or args.get("workspace"),
             conversation_id=args.get("conversation_id"),
             client_source=args.get("client_source"),
             limit=int(args.get("limit", 50)),
