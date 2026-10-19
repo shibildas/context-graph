@@ -1,21 +1,22 @@
-# Context Graph & Query Cache Protocol (Token-Saving Rules)
+# Context Graph, Query Cache & Anti-Hallucination Protocol
 
-You have access to the **Context Graph & Query Cache** plugin (`context-graph-mcp`), which maintains a persistent SQLite knowledge base of file summaries, symbols, implementation relationships, and queried/generated data across turns and conversations.
+You have access to the **Context Graph & Query Cache** plugin (`context-graph-mcp`), which maintains a persistent SQLite knowledge base of file summaries, symbols, implementation relationships, queried/generated data, and **verified ground-truth overrides** across turns and conversations.
 
-Follow these rules to minimize redundant file reads and token usage:
+Follow these rules to minimize redundant file reads, save tokens, and prevent hallucinations:
 
-1. **Check the Cache First**:
-   - At the start of a task, review the `[Context Graph & Query Cache]` system digest (if injected at session start) or call `cache_get_overview` / `cache_search` for the active workspace.
+1. **Obey Verified Ground-Truth Overrides First**:
+   - Always check `ground_truth_overrides` in the `[Context Graph & Query Cache]` session digest, `cache_get_overview`, or `cache_get_file_context`.
+   - Ground-truth overrides represent explicit user corrections and verified facts. They **strictly override** any prior model assumptions or older cached summaries.
+
+2. **Check the Cache Before Reading Files**:
    - Before reading a file purely to understand what it does or how it connects to other modules, call `cache_get_file_context`.
-   - If `cached: true` and `is_stale: false`, **do NOT call `view_file` on the entire file** just to re-learn its architecture or relationships. Only call `view_file` (using targeted `StartLine`/`EndLine` ranges from the cached `symbols` list) when you need exact lines to perform an edit.
+   - If `cached: true` and `is_stale: false`, **do NOT read the entire file** just to re-learn its architecture or relationships. Only read targeted line ranges (using the cached `symbols` list) when you need exact lines to perform an edit.
 
-2. **Bootstrap Unindexed Workspaces**:
-   - When entering a workspace that has not been indexed yet, call `cache_auto_index_workspace` first. It statically parses source files (`Python`, `TS/JS`, `Go`, `Rust`, etc.) with zero LLM token cost and populates file symbols and import relationships.
+3. **Fix Hallucinations & Record User Corrections Immediately**:
+   - Whenever the user corrects a false assumption, points out a hallucination, or clarifies a non-obvious domain rule, immediately call `cache_record_correction` with `override_key`, `hallucination_or_mistake`, `verified_truth`, and `scope_files` so the mistake is never repeated in future turns or sessions.
+   - If you suspect cached symbols, line numbers, or relationships have drifted from disk, call `cache_verify_and_fix_hallucinations` or `cache_refresh_context`.
 
-3. **Persist Architectural Insights & Relationships**:
-   - Whenever you inspect a file in depth and discover non-obvious implementation details, data flows, or cross-file dependencies, call `cache_upsert_file` with a concise architectural summary and `cache_add_relationship` (e.g., `calls`, `implements`, `reads_data_from`, `tests`, `configures`).
-   - Whenever you modify a file (`replace_file_content`, `write_to_file`), update its cached entry via `cache_upsert_file` once your changes are complete so its hash is marked fresh for future turns.
-
-4. **Cache Queried & Generated Data**:
-   - Whenever you run an expensive search, database query, API fetch, log analysis, or generate a structured dataset/insight, call `cache_store_query` with a descriptive `query_key`, `result_summary`, and `related_files`.
-   - Before running a repeated search or regenerating data, call `cache_search` with `category: "queries"` to reuse existing results.
+4. **Persist Architectural Insights, Relationships & Queried Data**:
+   - When entering an unindexed workspace, call `cache_auto_index_workspace` first (zero LLM token cost).
+   - Whenever you inspect a file in depth or modify a file, update its cached entry via `cache_upsert_file` and `cache_add_relationship`.
+   - Whenever you run an expensive search, database query, API fetch, or generate a structured dataset, call `cache_store_query` so future turns can reuse it via `cache_search`.

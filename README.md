@@ -4,9 +4,7 @@
 
 A **Universal Multi-LLM Plugin & MCP Knowledge Graph** for **Google Antigravity**, **Claude Code**, **Cursor**, **Windsurf**, **OpenAI Codex CLI**, and **Google Gemini CLI**.
 
-It persists **file summaries**, **symbol line maps**, **code & implementation relationships**, **LLM-queried / generated data**, and **token usage analytics per conversation, per LLM client, and per Git repository** in a shared local SQLite database (`~/.gemini/context-graph/cache.db`).
-
-By tracking file `SHA-256` hashes and modification times (`mtime`), your AI coding assistants know which files are **fresh** (unchanged on disk) versus **stale** (modified)—allowing every LLM tool on your machine to share the same architectural memory without burning tokens re-reading unchanged files.
+It persists **file summaries**, **symbol line maps**, **code & implementation relationships**, **LLM-queried / generated data**, **ground-truth anti-hallucination overrides**, and **token usage analytics per conversation, per LLM client, and per Git repository** in a shared local SQLite database (`~/.gemini/context-graph/cache.db`).
 
 ---
 
@@ -45,89 +43,59 @@ sh ./install.sh --all
   git clone <YOUR_GIT_REPO_URL> .agents/plugins/context-graph
   ```
 
-### 3. Direct Setup for Claude Code / Gemini CLI / Codex CLI
-- **Claude Code**:
-  ```bash
-  claude mcp add context-graph -- python3 ~/.gemini/config/plugins/context-graph/server/mcp_server.py
-  # Or load as a full plugin with hooks & skills:
-  claude --plugin-dir ~/.gemini/config/plugins/context-graph
-  ```
-- **Gemini CLI**:
-  ```bash
-  gemini extensions install <YOUR_GIT_REPO_URL>
-  ```
-- **Cursor / Windsurf / Claude Desktop**:
-  Add `context-graph-mcp` to your `mcp.json`:
-  ```json
-  {
-    "mcpServers": {
-      "context-graph-mcp": {
-        "command": "python3",
-        "args": ["/path/to/context-graph/server/mcp_server.py"]
-      }
-    }
-  }
-  ```
-
 ---
 
 ## Key Features
 
-### 1. Multi-LLM Token Usage Analytics (`cache_get_token_usage` & `scripts/token_report.py`)
-- Scans transcript logs across **Antigravity** (`~/.gemini/antigravity/brain/`), **Claude Code** (`~/.claude/projects/`), and **Codex CLI** (`~/.codex/sessions/`).
-- Reports `input_tokens`, `cache_read_tokens`, `output_tokens`, `total_tokens`, and **Cache Hit Rate %** broken down by:
-  1. **LLM Client** (`antigravity`, `claude-code`, `codex-cli`)
-  2. **Project / Related Git Repository** (automatically detecting `.git` root, repository name, `origin` remote URL, and active branch)
-  3. **Individual Conversation** (with prompt title and turn count)
-- Run from the terminal anytime:
+### 1. Override, Refresh Context & Fix Hallucinations (`scripts/context_ctl.py` + MCP Tools)
+- **Pin Verified Ground-Truth Corrections (`cache_record_correction`)**:
+  When an LLM hallucinates or makes a wrong assumption, record a high-priority ground-truth pin. It is automatically injected at the very top of `SessionStart` and `cache_get_file_context` so the LLM never repeats the mistake:
   ```bash
-  python3 ~/.gemini/config/plugins/context-graph/scripts/token_report.py
-  # Filter by repo or client:
-  python3 ~/.gemini/config/plugins/context-graph/scripts/token_report.py --workspace /path/to/repo --client antigravity
+  python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py correct \
+    --workspace /path/to/repo \
+    --key "hdfc-live-env" \
+    --mistake "Assuming HDFC_ENV is LIVE in production" \
+    --truth "HDFC_ENV must be set to PRODUCTION in live environment"
+  ```
+- **Automated Hallucination Detector & Healer (`cache_verify_and_fix_hallucinations`)**:
+  Audits the SQLite cache against actual files and AST symbols on disk—automatically purging deleted ghost files, removing broken relationships, and repairing phantom/drifted symbol names:
+  ```bash
+  python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py verify --workspace /path/to/repo
+  ```
+- **Granular or Full Context Refresh (`cache_refresh_context` & `cache_override_entry`)**:
+  Refresh stale files (`stale_only`), force-rebuild the entire workspace graph (`force_all`), refresh a single file (`file`), purge cached queries (`purge_queries`), or hard-reset the workspace cache (`hard_reset`) while keeping your ground-truth overrides:
+  ```bash
+  python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py refresh --workspace /path/to/repo --mode force_all
   ```
 
-### 2. Zero-Token Static Codebase Indexing (`cache_auto_index_workspace`)
+### 2. Multi-LLM Token Usage Analytics (`cache_get_token_usage` & `scripts/token_report.py`)
+- Scans transcript logs across **Antigravity**, **Claude Code**, and **Codex CLI**.
+- Reports `input_tokens`, `cache_read_tokens`, `output_tokens`, `total_tokens`, and **Cache Hit Rate %** broken down by **LLM Client**, **Project / Related Git Repository**, and **Individual Conversation**:
+  ```bash
+  python3 ~/.gemini/config/plugins/context-graph/scripts/token_report.py
+  ```
+
+### 3. Zero-Token Static Codebase Indexing (`cache_auto_index_workspace`)
 - Statically parses source files (`Python` via `ast`, plus `TypeScript`, `JavaScript`, `Go`, `Rust`, `Java`, `C/C++`, `SQL`, etc.) to extract classes, functions, line numbers, exported symbols, and `imports` relationships with zero LLM token cost.
-
-### 3. SHA-256 Staleness Detection (`cache_get_file_context`)
-- Every cached file records its `mtime` and `SHA-256` digest. On subsequent turns or sessions, if `is_stale` is `false`, the LLM uses the cached architectural summary, symbol line numbers, and incoming/outgoing edges instead of reading the entire file.
-
-### 4. Persistent Query & Generated Data Cache (`cache_store_query` / `cache_search`)
-- Stores expensive search findings, database query outputs, API responses, and LLM-generated datasets under a `query_key` linked to `related_files`.
 
 ---
 
-## Repository Structure
+## Available MCP Tools (`context-graph-mcp`)
 
-```text
-context-graph/
-├── plugin.json                        # Google Antigravity plugin manifest
-├── .claude-plugin/
-│   └── plugin.json                    # Claude Code plugin manifest
-├── gemini-extension.json              # Google Gemini CLI extension manifest
-├── mcp_config.json                    # Antigravity MCP server config
-├── .mcp.json                          # Claude Code / Cursor MCP server config
-├── hooks.json                         # Universal SessionStart & PostToolUse hooks
-├── install.sh                         # Universal installer script
-├── LICENSE                            # MIT License
-├── README.md                          # Documentation
-├── assets/
-│   └── logo.svg                       # Plugin icon
-├── server/
-│   ├── db_engine.py                   # SQLite graph + multi-LLM token tracker + AST indexer
-│   └── mcp_server.py                  # Zero-dependency JSON-RPC 2.0 Stdio MCP server
-├── scripts/
-│   ├── session_start.py               # Injects workspace context digest on SessionStart
-│   ├── post_tool_tracker.py           # Tracks file reads, edits & token usage on PostToolUse
-│   └── token_report.py                # CLI & Markdown reporter for multi-LLM token usage
-├── rules/
-│   └── AGENTS.md                      # Always-on token-saving protocol for all LLMs
-├── skills/
-│   └── context-graph/
-│       └── SKILL.md                   # On-demand workflows for token reports & indexing
-└── agents/
-    └── context-indexer.md             # Background subagent for indexing large codebases
-```
+| Tool | Description |
+| :--- | :--- |
+| `cache_record_correction` | Pin a verified user correction / ground-truth rule to fix and prevent repeating an LLM hallucination. |
+| `cache_verify_and_fix_hallucinations` | Audit cached files, symbols, and edges against disk AST and auto-fix phantom symbols or ghost files. |
+| `cache_refresh_context` | Refresh or reset context (`stale_only`, `force_all`, `file`, `purge_queries`, `hard_reset`). |
+| `cache_override_entry` | Directly override or delete a specific cached `file`, `query`, `relationship`, or `override`. |
+| `cache_get_token_usage` | View token usage per conversation, per LLM client, and grouped by project / Git repository. |
+| `cache_auto_index_workspace` | Zero-token static indexer that scans workspace files and populates symbols and `imports` edges. |
+| `cache_get_overview` | Returns workspace cache stats, ground-truth overrides, Git repo info, fresh/stale files, and relationships. |
+| `cache_get_file_context` | Checks if a file is fresh (`is_stale: false`) and returns its overrides, summary, symbols, and relationships. |
+| `cache_upsert_file` | Saves an LLM-enriched summary, symbol map, and outgoing dependencies with current disk `SHA-256`. |
+| `cache_add_relationship` | Adds a directed relationship (`imports`, `calls`, `implements`, `extends`, `reads_data_from`, `tests`, `configures`). |
+| `cache_store_query` | Saves queried data or LLM-generated datasets under a reusable `query_key`. |
+| `cache_search` | Searches across all ground-truth overrides, cached file summaries, symbols, relationships, and stored queries. |
 
 ---
 

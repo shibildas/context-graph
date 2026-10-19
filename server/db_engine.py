@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Core SQLite Knowledge Graph, Query Cache & Multi-LLM Token Usage Engine (`context-graph`).
+Core SQLite Knowledge Graph, Query Cache, Anti-Hallucination & Multi-LLM Token Usage Engine (`context-graph`).
 Supports:
   - Google Antigravity
   - Claude Code / Claude Desktop
@@ -284,6 +284,18 @@ def init_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (workspace_path, query_key)
         );
 
+        CREATE TABLE IF NOT EXISTS ground_truth_overrides (
+            workspace_path TEXT NOT NULL,
+            override_key TEXT NOT NULL,
+            hallucination_or_mistake TEXT DEFAULT '',
+            verified_truth TEXT NOT NULL,
+            scope_files_json TEXT DEFAULT '[]',
+            priority TEXT DEFAULT 'high',
+            active INTEGER DEFAULT 1,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (workspace_path, override_key)
+        );
+
         CREATE TABLE IF NOT EXISTS tool_activity (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             workspace_path TEXT NOT NULL,
@@ -319,11 +331,11 @@ def init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_rel_workspace_src ON relationships(workspace_path, source_file);
         CREATE INDEX IF NOT EXISTS idx_rel_workspace_tgt ON relationships(workspace_path, target_file);
         CREATE INDEX IF NOT EXISTS idx_queries_workspace ON cached_queries(workspace_path);
+        CREATE INDEX IF NOT EXISTS idx_overrides_workspace ON ground_truth_overrides(workspace_path);
         CREATE INDEX IF NOT EXISTS idx_conv_usage_repo ON conversation_usage(repo_root);
         CREATE INDEX IF NOT EXISTS idx_conv_usage_ws ON conversation_usage(workspace_path);
         """
     )
-    # Migrate existing table if client_source column was not present yet
     cols = [
         r["name"]
         for r in conn.execute("PRAGMA table_info(conversation_usage)").fetchall()
@@ -590,12 +602,36 @@ def get_file_context(
             (ws, f"%{fp}%"),
         ).fetchall()
 
+        overrides = conn.execute(
+            """
+            SELECT override_key, hallucination_or_mistake, verified_truth, priority, updated_at
+            FROM ground_truth_overrides
+            WHERE (workspace_path = ? OR workspace_path = 'global')
+              AND active = 1
+              AND (scope_files_json = '[]' OR scope_files_json LIKE ?)
+            ORDER BY updated_at DESC
+            """,
+            (ws, f"%{fp}%"),
+        ).fetchall()
+
+        override_list = [
+            {
+                "override_key": ov["override_key"],
+                "hallucination_or_mistake": ov["hallucination_or_mistake"],
+                "verified_truth": ov["verified_truth"],
+                "priority": ov["priority"],
+                "updated_at": ov["updated_at"],
+            }
+            for ov in overrides
+        ]
+
         if not row:
             return {
                 "cached": False,
                 "file_path": fp,
                 "rel_path": to_rel_path(fp, ws),
                 "message": "File is not yet cached. Read or index it and call cache_upsert_file.",
+                "ground_truth_overrides": override_list,
                 "outgoing_relationships": [
                     {
                         "target": to_rel_path(r["target_file"], ws),
@@ -626,6 +662,7 @@ def get_file_context(
                 if not staleness["is_stale"]
                 else "STALE: File was modified on disk since last cached. Re-read changed sections and update cache."
             ),
+            "ground_truth_overrides": override_list,
             "summary": row["summary"],
             "symbols": json.loads(row["symbols_json"] or "[]"),
             "exports": json.loads(row["exports_json"] or "[]"),
@@ -705,6 +742,16 @@ def get_overview(workspace_path: str, max_items: int = 50) -> Dict[str, Any]:
             (ws, max_items),
         ).fetchall()
 
+        override_rows = conn.execute(
+            """
+            SELECT * FROM ground_truth_overrides
+            WHERE (workspace_path = ? OR workspace_path = 'global') AND active = 1
+            ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 ELSE 3 END, updated_at DESC
+            LIMIT ?
+            """,
+            (ws, max_items),
+        ).fetchall()
+
         files_out = []
         stale_count = 0
         fresh_count = 0
@@ -753,6 +800,20 @@ def get_overview(workspace_path: str, max_items: int = 50) -> Dict[str, Any]:
             for q in query_rows
         ]
 
+        overrides_out = [
+            {
+                "override_key": ov["override_key"],
+                "hallucination_or_mistake": ov["hallucination_or_mistake"],
+                "verified_truth": ov["verified_truth"],
+                "scope_files": [
+                    to_rel_path(f, ws) for f in json.loads(ov["scope_files_json"] or "[]")
+                ],
+                "priority": ov["priority"],
+                "updated_at": ov["updated_at"],
+            }
+            for ov in override_rows
+        ]
+
         repo_info = detect_git_repo_info(ws)
 
         return {
@@ -764,7 +825,9 @@ def get_overview(workspace_path: str, max_items: int = 50) -> Dict[str, Any]:
                 "stale_files": stale_count,
                 "total_relationships": len(rels_out),
                 "total_cached_queries": len(queries_out),
+                "active_ground_truth_overrides": len(overrides_out),
             },
+            "ground_truth_overrides": overrides_out,
             "files": files_out,
             "relationships": rels_out,
             "cached_queries": queries_out,
@@ -780,6 +843,33 @@ def search_cache(
     q_like = f"%{query.strip()}%"
     conn = get_connection()
     try:
+        matched_overrides = []
+        if category in ("all", "overrides", "ground_truth"):
+            rows = conn.execute(
+                """
+                SELECT * FROM ground_truth_overrides
+                WHERE (workspace_path = ? OR workspace_path = 'global')
+                  AND active = 1
+                  AND (override_key LIKE ? OR hallucination_or_mistake LIKE ? OR verified_truth LIKE ? OR scope_files_json LIKE ?)
+                ORDER BY updated_at DESC LIMIT 25
+                """,
+                (ws, q_like, q_like, q_like, q_like),
+            ).fetchall()
+            for ov in rows:
+                matched_overrides.append(
+                    {
+                        "override_key": ov["override_key"],
+                        "hallucination_or_mistake": ov["hallucination_or_mistake"],
+                        "verified_truth": ov["verified_truth"],
+                        "priority": ov["priority"],
+                        "scope_files": [
+                            to_rel_path(f, ws)
+                            for f in json.loads(ov["scope_files_json"] or "[]")
+                        ],
+                        "updated_at": ov["updated_at"],
+                    }
+                )
+
         matched_files = []
         if category in ("all", "files", "symbols"):
             rows = conn.execute(
@@ -856,12 +946,445 @@ def search_cache(
         return {
             "workspace_path": ws,
             "query": query,
+            "matched_overrides": matched_overrides,
             "matched_files": matched_files,
             "matched_relationships": matched_rels,
             "matched_queries": matched_queries,
         }
     finally:
         conn.close()
+
+
+# --- Override, Refresh & Anti-Hallucination Engine ---
+
+
+def record_correction(
+    workspace_path: str,
+    override_key: str,
+    verified_truth: str,
+    hallucination_or_mistake: str = "",
+    scope_files: Optional[List[str]] = None,
+    priority: str = "high",
+    invalidate_related_cache: bool = True,
+) -> Dict[str, Any]:
+    """
+    Pins an authoritative ground-truth correction to prevent repeating a hallucination
+    or false assumption, and optionally invalidates/updates tainted cache entries.
+    """
+    ws = normalize_workspace(workspace_path)
+    ts = now_iso()
+    norm_files = [normalize_file_path(f, ws) for f in (scope_files or [])]
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO ground_truth_overrides (
+                workspace_path, override_key, hallucination_or_mistake,
+                verified_truth, scope_files_json, priority, active, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+            ON CONFLICT(workspace_path, override_key) DO UPDATE SET
+                hallucination_or_mistake = CASE WHEN excluded.hallucination_or_mistake != '' THEN excluded.hallucination_or_mistake ELSE ground_truth_overrides.hallucination_or_mistake END,
+                verified_truth = excluded.verified_truth,
+                scope_files_json = excluded.scope_files_json,
+                priority = excluded.priority,
+                active = 1,
+                updated_at = excluded.updated_at
+            """,
+            (
+                ws,
+                override_key,
+                hallucination_or_mistake,
+                verified_truth,
+                json.dumps(norm_files),
+                priority,
+                ts,
+            ),
+        )
+
+        flagged_files = 0
+        if invalidate_related_cache and norm_files:
+            for fp in norm_files:
+                cur = conn.execute(
+                    "UPDATE files SET needs_refresh = 1, updated_at = ? WHERE workspace_path = ? AND file_path = ?",
+                    (ts, ws, fp),
+                )
+                flagged_files += cur.rowcount
+
+        conn.commit()
+        return {
+            "status": "ok",
+            "workspace_path": ws,
+            "override_key": override_key,
+            "verified_truth": verified_truth,
+            "hallucination_or_mistake": hallucination_or_mistake,
+            "scope_files": [to_rel_path(f, ws) for f in norm_files],
+            "flagged_files_for_refresh": flagged_files,
+        }
+    finally:
+        conn.close()
+
+
+def override_or_delete_entry(
+    workspace_path: str,
+    target_type: str,
+    target_key: str,
+    new_value: str = "",
+    delete: bool = False,
+    target_file_secondary: str = "",
+) -> Dict[str, Any]:
+    """
+    Directly overrides or deletes a cached file summary, relationship, query, or ground-truth pin.
+    target_type: 'file' | 'query' | 'relationship' | 'override'
+    """
+    ws = normalize_workspace(workspace_path)
+    ts = now_iso()
+    conn = get_connection()
+    try:
+        ttype = target_type.strip().lower()
+        if ttype == "file":
+            fp = normalize_file_path(target_key, ws)
+            if delete:
+                cur = conn.execute(
+                    "DELETE FROM files WHERE workspace_path = ? AND file_path = ?",
+                    (ws, fp),
+                )
+                conn.execute(
+                    "DELETE FROM relationships WHERE workspace_path = ? AND (source_file = ? OR target_file = ?)",
+                    (ws, fp, fp),
+                )
+                conn.commit()
+                return {"status": "deleted", "target_type": "file", "file_path": fp, "rows_affected": cur.rowcount}
+            else:
+                conn.close()
+                return upsert_file(workspace_path=ws, file_path=fp, summary=new_value)
+
+        elif ttype == "query":
+            if delete:
+                cur = conn.execute(
+                    "DELETE FROM cached_queries WHERE workspace_path = ? AND query_key = ?",
+                    (ws, target_key),
+                )
+                conn.commit()
+                return {"status": "deleted", "target_type": "query", "query_key": target_key, "rows_affected": cur.rowcount}
+            else:
+                conn.close()
+                return store_query(
+                    workspace_path=ws,
+                    query_key=target_key,
+                    result_summary=new_value,
+                    category="queried_data",
+                )
+
+        elif ttype == "relationship":
+            src = normalize_file_path(target_key, ws)
+            if delete:
+                if target_file_secondary:
+                    tgt = normalize_file_path(target_file_secondary, ws)
+                    cur = conn.execute(
+                        "DELETE FROM relationships WHERE workspace_path = ? AND source_file = ? AND target_file = ?",
+                        (ws, src, tgt),
+                    )
+                else:
+                    cur = conn.execute(
+                        "DELETE FROM relationships WHERE workspace_path = ? AND (source_file = ? OR target_file = ?)",
+                        (ws, src, src),
+                    )
+                conn.commit()
+                return {"status": "deleted", "target_type": "relationship", "rows_affected": cur.rowcount}
+            else:
+                tgt = normalize_file_path(target_file_secondary, ws) if target_file_secondary else src
+                conn.close()
+                return add_relationship(
+                    workspace_path=ws,
+                    source_file=src,
+                    target_file=tgt,
+                    relation_type="depends_on",
+                    description=new_value,
+                )
+
+        elif ttype == "override":
+            if delete:
+                cur = conn.execute(
+                    "DELETE FROM ground_truth_overrides WHERE workspace_path = ? AND override_key = ?",
+                    (ws, target_key),
+                )
+                conn.commit()
+                return {"status": "deleted", "target_type": "override", "override_key": target_key, "rows_affected": cur.rowcount}
+            else:
+                conn.close()
+                return record_correction(
+                    workspace_path=ws,
+                    override_key=target_key,
+                    verified_truth=new_value,
+                )
+        else:
+            return {"status": "error", "message": f"Unknown target_type: {target_type}"}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def verify_and_fix_hallucinations(
+    workspace_path: str,
+    file_path: Optional[str] = None,
+    auto_fix: bool = True,
+) -> Dict[str, Any]:
+    """
+    Audits the cached knowledge graph against actual disk reality to detect and fix hallucinations:
+      1. Ghost files (cached files that no longer exist on disk)
+      2. Broken relationships (edges pointing to/from non-existent files)
+      3. Hallucinated or drifted symbols (cached functions/classes that don't exist in the actual file AST)
+      4. Stale queries (cached queries whose underlying related_files were modified after the query was stored)
+    """
+    ws = normalize_workspace(workspace_path)
+    conn = get_connection()
+    ghost_files: List[str] = []
+    broken_relationships: List[Dict[str, str]] = []
+    drifted_symbol_files: List[Dict[str, Any]] = []
+    stale_queries: List[Dict[str, Any]] = []
+    fixed_actions: List[str] = []
+
+    try:
+        if file_path:
+            fp_filter = normalize_file_path(file_path, ws)
+            file_rows = conn.execute(
+                "SELECT * FROM files WHERE workspace_path = ? AND file_path = ?",
+                (ws, fp_filter),
+            ).fetchall()
+        else:
+            file_rows = conn.execute(
+                "SELECT * FROM files WHERE workspace_path = ?",
+                (ws,),
+            ).fetchall()
+
+        for row in file_rows:
+            fp = row["file_path"]
+            rel = row["rel_path"]
+            if not os.path.isfile(fp):
+                ghost_files.append(rel)
+                if auto_fix:
+                    conn.execute(
+                        "DELETE FROM files WHERE workspace_path = ? AND file_path = ?",
+                        (ws, fp),
+                    )
+                    conn.execute(
+                        "DELETE FROM relationships WHERE workspace_path = ? AND (source_file = ? OR target_file = ?)",
+                        (ws, fp, fp),
+                    )
+                    fixed_actions.append(f"Purged non-existent ghost file `{rel}` and its edges.")
+                continue
+
+            # Compare cached symbols against live AST/regex symbols on disk
+            ext = os.path.splitext(fp)[1].lower()
+            if ext in CODE_EXTENSIONS and os.path.getsize(fp) <= 512 * 1024:
+                try:
+                    with open(fp, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    if ext == ".py":
+                        live_sum, live_syms, live_exp, _ = _analyze_python_file(fp, content)
+                    else:
+                        live_sum, live_syms, live_exp, _ = _analyze_generic_file(fp, content, ext)
+
+                    cached_syms = json.loads(row["symbols_json"] or "[]")
+                    cached_names = {
+                        s.get("name") for s in cached_syms if isinstance(s, dict) and s.get("name")
+                    }
+                    live_names = {
+                        s.get("name") for s in live_syms if isinstance(s, dict) and s.get("name")
+                    }
+                    hallucinated_names = sorted(list(cached_names - live_names))
+                    missing_names = sorted(list(live_names - cached_names))
+                    st = check_file_staleness(row)
+
+                    if hallucinated_names or missing_names or st["is_stale"]:
+                        drifted_symbol_files.append(
+                            {
+                                "rel_path": rel,
+                                "hallucinated_or_removed_symbols": hallucinated_names,
+                                "unindexed_new_symbols": missing_names,
+                                "was_stale": st["is_stale"],
+                            }
+                        )
+                        if auto_fix:
+                            sha, mtime, size_bytes = compute_file_signature(fp)
+                            conn.execute(
+                                """
+                                UPDATE files
+                                SET sha256 = ?, mtime = ?, size_bytes = ?,
+                                    symbols_json = ?, exports_json = ?, needs_refresh = 0, updated_at = ?
+                                WHERE workspace_path = ? AND file_path = ?
+                                """,
+                                (
+                                    sha,
+                                    mtime,
+                                    size_bytes,
+                                    json.dumps(live_syms),
+                                    json.dumps(live_exp),
+                                    now_iso(),
+                                    ws,
+                                    fp,
+                                ),
+                            )
+                            fixed_actions.append(
+                                f"Re-synced symbols & SHA-256 for `{rel}` (removed {len(hallucinated_names)} phantom symbols, added {len(missing_names)} live symbols)."
+                            )
+                except OSError:
+                    pass
+
+        # Check all relationships for broken endpoints
+        rel_rows = conn.execute(
+            "SELECT * FROM relationships WHERE workspace_path = ?",
+            (ws,),
+        ).fetchall()
+        for r in rel_rows:
+            src = r["source_file"]
+            tgt = r["target_file"]
+            if not os.path.exists(src) or not os.path.exists(tgt):
+                broken_relationships.append(
+                    {
+                        "source": to_rel_path(src, ws),
+                        "target": to_rel_path(tgt, ws),
+                        "type": r["relation_type"],
+                    }
+                )
+                if auto_fix:
+                    conn.execute(
+                        "DELETE FROM relationships WHERE workspace_path = ? AND source_file = ? AND target_file = ? AND relation_type = ?",
+                        (ws, src, tgt, r["relation_type"]),
+                    )
+                    fixed_actions.append(
+                        f"Removed broken relationship `{to_rel_path(src, ws)}` -> `{to_rel_path(tgt, ws)}`."
+                    )
+
+        # Check cached queries for underlying file modifications
+        q_rows = conn.execute(
+            "SELECT * FROM cached_queries WHERE workspace_path = ?",
+            (ws,),
+        ).fetchall()
+        for q in q_rows:
+            rel_files = json.loads(q["related_files_json"] or "[]")
+            missing_or_newer = []
+            for rf in rel_files:
+                if not os.path.exists(rf):
+                    missing_or_newer.append(f"{to_rel_path(rf, ws)} (deleted)")
+            if missing_or_newer:
+                stale_queries.append(
+                    {
+                        "query_key": q["query_key"],
+                        "affected_files": missing_or_newer,
+                    }
+                )
+
+        conn.commit()
+        return {
+            "status": "ok",
+            "workspace_path": ws,
+            "auto_fix_applied": auto_fix,
+            "issues_detected": {
+                "ghost_files_count": len(ghost_files),
+                "broken_relationships_count": len(broken_relationships),
+                "drifted_or_hallucinated_symbol_files_count": len(drifted_symbol_files),
+                "stale_queries_count": len(stale_queries),
+            },
+            "ghost_files": ghost_files,
+            "broken_relationships": broken_relationships,
+            "drifted_symbol_files": drifted_symbol_files,
+            "stale_queries": stale_queries,
+            "fixed_actions": fixed_actions,
+        }
+    finally:
+        conn.close()
+
+
+def refresh_context(
+    workspace_path: str,
+    mode: str = "stale_only",
+    target: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Refreshes or resets cached workspace context.
+    Modes:
+      - 'stale_only': Re-indexes only modified/stale files and purges ghost files.
+      - 'force_all': Re-indexes all files in the workspace from scratch and verifies edges.
+      - 'file': Forces re-indexing of a single file (`target`).
+      - 'purge_queries': Deletes cached queries (all, or matching `target`).
+      - 'hard_reset': Wipes cached files, relationships, and queries for the workspace (preserves ground_truth_overrides and token usage).
+    """
+    ws = normalize_workspace(workspace_path)
+    m = mode.strip().lower()
+
+    if m == "file" and target:
+        fp = normalize_file_path(target, ws)
+        if not os.path.isfile(fp):
+            return override_or_delete_entry(ws, "file", fp, delete=True)
+        ext = os.path.splitext(fp)[1].lower()
+        with open(fp, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        if ext == ".py":
+            summary, symbols, exports, _ = _analyze_python_file(fp, content)
+        else:
+            summary, symbols, exports, _ = _analyze_generic_file(fp, content, ext)
+        return upsert_file(
+            workspace_path=ws,
+            file_path=fp,
+            summary=summary,
+            symbols=symbols,
+            exports=exports,
+            tags=[ext.lstrip(".")],
+        )
+
+    elif m == "purge_queries":
+        conn = get_connection()
+        try:
+            if target:
+                cur = conn.execute(
+                    "DELETE FROM cached_queries WHERE workspace_path = ? AND (query_key = ? OR tags_json LIKE ?)",
+                    (ws, target, f"%{target}%"),
+                )
+            else:
+                cur = conn.execute(
+                    "DELETE FROM cached_queries WHERE workspace_path = ?",
+                    (ws,),
+                )
+            conn.commit()
+            return {"status": "ok", "mode": m, "purged_queries": cur.rowcount}
+        finally:
+            conn.close()
+
+    elif m == "hard_reset":
+        conn = get_connection()
+        try:
+            f_del = conn.execute("DELETE FROM files WHERE workspace_path = ?", (ws,)).rowcount
+            r_del = conn.execute("DELETE FROM relationships WHERE workspace_path = ?", (ws,)).rowcount
+            q_del = conn.execute("DELETE FROM cached_queries WHERE workspace_path = ?", (ws,)).rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        reindexed = (
+            auto_index_workspace(ws, max_files=200, force=True)
+            if os.path.isdir(ws)
+            else {}
+        )
+        return {
+            "status": "ok",
+            "mode": "hard_reset",
+            "cleared": {"files": f_del, "relationships": r_del, "queries": q_del},
+            "reindexed": reindexed,
+        }
+
+    elif m == "force_all":
+        audit = verify_and_fix_hallucinations(ws, auto_fix=True)
+        idx = auto_index_workspace(ws, max_files=250, force=True)
+        return {"status": "ok", "mode": "force_all", "audit": audit["issues_detected"], "index_result": idx}
+
+    else:
+        # Default: 'stale_only'
+        audit = verify_and_fix_hallucinations(ws, auto_fix=True)
+        idx = auto_index_workspace(ws, max_files=250, force=False)
+        return {"status": "ok", "mode": "stale_only", "audit": audit["issues_detected"], "index_result": idx}
 
 
 # --- Multi-LLM Token Usage & Related Repo Tracking ---
@@ -988,7 +1511,6 @@ def sync_transcript_usage(
     norm_tpath = os.path.normpath(transcript_path)
     parts = norm_tpath.split(os.sep)
 
-    # Detect client format from path or content
     client_source = "antigravity"
     if ".claude" in parts:
         client_source = "claude-code"
@@ -1045,7 +1567,6 @@ def sync_transcript_usage(
                 except json.JSONDecodeError:
                     continue
 
-                # 1. Antigravity format (`PLANNER_RESPONSE` / `USER_INPUT`)
                 stype = step.get("type", "")
                 if stype in ("USER_INPUT", "PLANNER_RESPONSE", "GENERIC"):
                     created_at = step.get("created_at", "")
@@ -1087,7 +1608,6 @@ def sync_transcript_usage(
                                     inferred_paths.append(val)
                     continue
 
-                # 2. Claude Code JSONL format (`type: "user" | "assistant"`, `message.usage`, `cwd`)
                 if "message" in step and isinstance(step["message"], dict):
                     client_source = "claude-code"
                     ts_val = step.get("timestamp", "")
@@ -1127,7 +1647,6 @@ def sync_transcript_usage(
                             turn_count += 1
                     continue
 
-                # 3. OpenAI Codex CLI JSONL format
                 if stype in ("event_msg", "turn_context", "session_meta"):
                     client_source = "codex-cli"
                     ts_val = step.get("timestamp", "")
@@ -1199,7 +1718,6 @@ def scan_all_llm_transcripts(conn: sqlite3.Connection) -> int:
     """
     synced = 0
 
-    # 1. Google Antigravity
     if os.path.isdir(ANTIGRAVITY_BRAIN_DIR):
         pattern = os.path.join(
             ANTIGRAVITY_BRAIN_DIR, "*", ".system_generated", "logs", "transcript.jsonl"
@@ -1208,14 +1726,12 @@ def scan_all_llm_transcripts(conn: sqlite3.Connection) -> int:
             if sync_transcript_usage(tpath, conn=conn):
                 synced += 1
 
-    # 2. Claude Code (~/.claude/projects/*/*.jsonl)
     if os.path.isdir(CLAUDE_PROJECTS_DIR):
         pattern = os.path.join(CLAUDE_PROJECTS_DIR, "*", "*.jsonl")
         for tpath in glob.glob(pattern):
             if sync_transcript_usage(tpath, conn=conn):
                 synced += 1
 
-    # 3. Codex CLI (~/.codex/sessions/**/*.jsonl)
     if os.path.isdir(CODEX_SESSIONS_DIR):
         pattern = os.path.join(CODEX_SESSIONS_DIR, "**", "*.jsonl")
         for tpath in glob.glob(pattern, recursive=True):

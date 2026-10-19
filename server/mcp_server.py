@@ -20,8 +20,8 @@ TOOLS = [
         "name": "cache_get_overview",
         "description": (
             "Retrieve a token-efficient overview of the workspace's cached files, "
-            "staleness status (fresh vs modified on disk), module/implementation relationships, "
-            "and stored query/generated data. Call this FIRST before exploring a codebase."
+            "verified ground-truth overrides (anti-hallucination pins), staleness status, "
+            "module/implementation relationships, and stored query/generated data. Call this FIRST."
         ),
         "inputSchema": {
             "type": "object",
@@ -42,9 +42,8 @@ TOOLS = [
         "name": "cache_get_file_context",
         "description": (
             "Check if a file is already in the context graph and whether it is fresh (unchanged on disk). "
-            "Returns its cached implementation summary, symbols (functions/classes with line numbers), "
-            "incoming/outgoing file relationships, and related cached queries. "
-            "If is_stale is false, you do NOT need to spend tokens reading the full file."
+            "Returns any ground-truth anti-hallucination overrides, cached implementation summary, symbols, "
+            "incoming/outgoing file relationships, and related cached queries."
         ),
         "inputSchema": {
             "type": "object",
@@ -198,7 +197,7 @@ TOOLS = [
     {
         "name": "cache_search",
         "description": (
-            "Search across all cached file summaries, symbols, code relationships, and stored query/generated data."
+            "Search across all ground-truth overrides, cached file summaries, symbols, code relationships, and stored query/generated data."
         ),
         "inputSchema": {
             "type": "object",
@@ -213,7 +212,7 @@ TOOLS = [
                 },
                 "category": {
                     "type": "string",
-                    "description": "Filter by category: 'all' (default), 'files', 'relationships', 'queries'.",
+                    "description": "Filter by category: 'all' (default), 'overrides', 'files', 'relationships', 'queries'.",
                 },
             },
             "required": ["workspace_path", "query"],
@@ -242,6 +241,131 @@ TOOLS = [
                 },
             },
             "required": ["workspace_path"],
+        },
+    },
+    {
+        "name": "cache_record_correction",
+        "description": (
+            "Fix an LLM hallucination or record a verified user correction as a high-priority ground-truth override pin. "
+            "Automatically injected at the top of future sessions and file context lookups so the LLM never repeats the mistake."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Absolute path to the workspace root directory (or 'global').",
+                },
+                "override_key": {
+                    "type": "string",
+                    "description": "Unique slug identifier for this correction (e.g., 'hdfc-live-env-value', 'no-manual-payment-insert').",
+                },
+                "hallucination_or_mistake": {
+                    "type": "string",
+                    "description": "Description of the false assumption or hallucination that occurred.",
+                },
+                "verified_truth": {
+                    "type": "string",
+                    "description": "The authoritative ground truth that MUST be followed instead.",
+                },
+                "scope_files": {
+                    "type": "array",
+                    "description": "Optional list of files where this ground-truth rule applies.",
+                    "items": {"type": "string"},
+                },
+                "priority": {
+                    "type": "string",
+                    "description": "Priority level: 'critical', 'high' (default), or 'normal'.",
+                },
+            },
+            "required": ["workspace_path", "override_key", "verified_truth"],
+        },
+    },
+    {
+        "name": "cache_verify_and_fix_hallucinations",
+        "description": (
+            "Audit the cached context graph against actual disk files to detect and automatically fix hallucinations: "
+            "purges deleted ghost files, removes broken relationships, and re-syncs drifted/phantom AST symbol names and line numbers."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Absolute path to the workspace root directory.",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional specific file path to audit (audits entire workspace if omitted).",
+                },
+                "auto_fix": {
+                    "type": "boolean",
+                    "description": "If true (default), automatically repairs drifted symbols and deletes ghost files/edges.",
+                },
+            },
+            "required": ["workspace_path"],
+        },
+    },
+    {
+        "name": "cache_refresh_context",
+        "description": (
+            "Refresh or reset cached context for a workspace or file. "
+            "Modes: 'stale_only' (default), 'force_all' (rebuild all files/edges), 'file' (refresh single target file), "
+            "'purge_queries' (clear cached query results), 'hard_reset' (wipe files/edges/queries while keeping ground-truth overrides)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Absolute path to the workspace root directory.",
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "One of: 'stale_only', 'force_all', 'file', 'purge_queries', 'hard_reset'.",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Optional file path (when mode='file') or query_key/tag (when mode='purge_queries').",
+                },
+            },
+            "required": ["workspace_path"],
+        },
+    },
+    {
+        "name": "cache_override_entry",
+        "description": (
+            "Directly override or delete any specific cached entry (file summary, query, relationship, or ground-truth override)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Absolute path to the workspace root directory.",
+                },
+                "target_type": {
+                    "type": "string",
+                    "description": "One of: 'file', 'query', 'relationship', 'override'.",
+                },
+                "target_key": {
+                    "type": "string",
+                    "description": "File path (for 'file'/'relationship'), query_key (for 'query'), or override_key (for 'override').",
+                },
+                "new_value": {
+                    "type": "string",
+                    "description": "New summary or ground-truth text (when delete=false).",
+                },
+                "delete": {
+                    "type": "boolean",
+                    "description": "If true, deletes the entry from the cache.",
+                },
+                "target_file_secondary": {
+                    "type": "string",
+                    "description": "Optional target file path when overriding/deleting a specific 'relationship'.",
+                },
+            },
+            "required": ["workspace_path", "target_type", "target_key"],
         },
     },
     {
@@ -329,6 +453,36 @@ def handle_tool_call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             max_files=int(args.get("max_files", 200)),
             force=bool(args.get("force", False)),
         )
+    elif name == "cache_record_correction":
+        return db_engine.record_correction(
+            workspace_path=args.get("workspace_path", "global"),
+            override_key=args["override_key"],
+            verified_truth=args["verified_truth"],
+            hallucination_or_mistake=args.get("hallucination_or_mistake", ""),
+            scope_files=args.get("scope_files"),
+            priority=args.get("priority", "high"),
+        )
+    elif name == "cache_verify_and_fix_hallucinations":
+        return db_engine.verify_and_fix_hallucinations(
+            workspace_path=args.get("workspace_path", "global"),
+            file_path=args.get("file_path"),
+            auto_fix=bool(args.get("auto_fix", True)),
+        )
+    elif name == "cache_refresh_context":
+        return db_engine.refresh_context(
+            workspace_path=args.get("workspace_path", "global"),
+            mode=args.get("mode", "stale_only"),
+            target=args.get("target"),
+        )
+    elif name == "cache_override_entry":
+        return db_engine.override_or_delete_entry(
+            workspace_path=args.get("workspace_path", "global"),
+            target_type=args["target_type"],
+            target_key=args["target_key"],
+            new_value=args.get("new_value", ""),
+            delete=bool(args.get("delete", False)),
+            target_file_secondary=args.get("target_file_secondary", ""),
+        )
     elif name == "cache_get_token_usage":
         return db_engine.get_token_usage_report(
             workspace_path=args.get("workspace_path"),
@@ -375,7 +529,7 @@ def main() -> None:
                             "capabilities": {"tools": {}},
                             "serverInfo": {
                                 "name": "context-graph-mcp",
-                                "version": "1.2.0",
+                                "version": "1.3.0",
                             },
                         },
                     }

@@ -33,18 +33,38 @@ def build_digest(workspace_path: str) -> str:
         stats["total_cached_files"] == 0
         and stats["total_relationships"] == 0
         and stats["total_cached_queries"] == 0
+        and stats.get("active_ground_truth_overrides", 0) == 0
     ):
         return ""
 
     lines = [
         f"## [Context Graph & Query Cache] Active Workspace Memory (`{workspace_path}`)",
         (
-            f"**Stats**: {stats['fresh_files']} fresh files, {stats['stale_files']} stale files, "
+            f"**Stats**: {stats.get('active_ground_truth_overrides', 0)} ground-truth overrides, "
+            f"{stats['fresh_files']} fresh files, {stats['stale_files']} stale files, "
             f"{stats['total_relationships']} mapped relationships, {stats['total_cached_queries']} cached queries/datasets."
         ),
-        "> **Token-Saving Directive**: Files marked `[FRESH]` have NOT changed on disk since they were analyzed. Rely on the summaries, symbols, and relationships below (or call `cache_get_file_context` / `cache_search`) instead of re-reading full files.",
+        "> **Token-Saving & Anti-Hallucination Directive**: Always obey the Verified Ground-Truth Overrides below over any prior assumption. Files marked `[FRESH]` have NOT changed on disk since they were analyzed.",
         "",
     ]
+
+    if overview.get("ground_truth_overrides"):
+        lines.append("### Verified Ground-Truth Overrides (Anti-Hallucination Pins)")
+        for ov in overview["ground_truth_overrides"][:20]:
+            mistake = (
+                f" *(Do NOT hallucinate: {ov['hallucination_or_mistake']})*"
+                if ov.get("hallucination_or_mistake")
+                else ""
+            )
+            scope = (
+                f" [Files: `{', '.join(ov['scope_files'])}`]"
+                if ov.get("scope_files")
+                else ""
+            )
+            lines.append(
+                f"- **[`{ov['priority'].upper()}`] `{ov['override_key']}`**: {ov['verified_truth']}{mistake}{scope}"
+            )
+        lines.append("")
 
     if overview["cached_queries"]:
         lines.append("### Cached Queries & Generated Data")
@@ -82,7 +102,6 @@ def main() -> None:
     except Exception:
         payload = {}
 
-    # Detect workspace across Antigravity (`workspacePaths`) and Claude Code / Gemini CLI (`cwd`)
     workspace_paths = payload.get("workspacePaths") or []
     workspace = (
         workspace_paths[0]

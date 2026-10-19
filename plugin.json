@@ -1,12 +1,12 @@
 {
   "name": "context-graph",
   "displayName": "Context Graph & Query Cache",
-  "description": "Persists file summaries, code implementation relationships, queried/generated data, and tracks token usage per conversation and Git repository so Antigravity avoids burning tokens re-reading files.",
-  "version": "1.1.0",
+  "description": "Persists file summaries, code relationships, queried/generated data, ground-truth anti-hallucination overrides, and tracks multi-LLM token usage per conversation and Git repository.",
+  "version": "1.3.0",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
+    "Verify and fix any hallucinated symbols or stale context in this workspace",
     "Show token usage per conversation and grouped by project / Git repository",
-    "Index this workspace into the context graph and show the module relationship map",
-    "Search the context cache for previously queried data and implementation relationships"
+    "Index this workspace into the context graph and show the module relationship map"
   ]
 }
