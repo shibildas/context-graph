@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-CLI & Helper Reporter for viewing LLM token usage per conversation and per project/Git repo.
+CLI & Helper Reporter for viewing LLM token usage across Antigravity, Claude Code, and Codex CLI,
+broken down per LLM client, per project/Git repo, and per conversation.
 Usage:
-  python3 scripts/token_report.py [--workspace /path/to/repo] [--json]
+  python3 scripts/token_report.py [--workspace /path/to/repo] [--client antigravity|claude-code|codex-cli] [--json]
 """
 
 import argparse
@@ -22,7 +23,7 @@ def fmt_num(n: int) -> str:
 
 def print_markdown_report(report: dict) -> None:
     gt = report["grand_totals"]
-    print("# Antigravity Token Usage Report\n")
+    print("# Multi-LLM Token Usage Report\n")
     print(
         f"**Total Conversations**: {gt['total_conversations']} | "
         f"**Total Tokens**: `{fmt_num(gt['total_tokens'])}` "
@@ -31,7 +32,21 @@ def print_markdown_report(report: dict) -> None:
         f"Output: `{fmt_num(gt['output_tokens'])}`)\n"
     )
 
-    print("## 1. Token Usage by Project / Related Git Repo\n")
+    if report.get("by_client"):
+        print("## 1. Token Usage by LLM Client\n")
+        print(
+            "| LLM Client | Convs | Turns | Input Tokens | Cache Read Tokens | Output Tokens | Total Tokens | Cache Hit % |"
+        )
+        print("| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+        for cl in report["by_client"]:
+            print(
+                f"| **`{cl['client_source']}`** | {cl['conversation_count']} | {cl['total_turns']} | "
+                f"{fmt_num(cl['input_tokens'])} | {fmt_num(cl['cache_read_tokens'])} | "
+                f"{fmt_num(cl['output_tokens'])} | **{fmt_num(cl['total_tokens'])}** | {cl['cache_hit_rate_pct']}% |"
+            )
+        print("")
+
+    print("## 2. Token Usage by Project / Related Git Repo\n")
     print(
         "| Project / Git Repo | Branch | Remote URL | Convs | Turns | Input Tokens | Cache Read Tokens | Output Tokens | Total Tokens | Cache Hit % |"
     )
@@ -47,16 +62,16 @@ def print_markdown_report(report: dict) -> None:
         )
     print("")
 
-    print("## 2. Token Usage per Conversation\n")
+    print("## 3. Token Usage per Conversation\n")
     print(
-        "| Conversation ID | Prompt / Title | Project / Repo | Turns | Input | Cache Read | Output | Total Tokens | Cache Hit % |"
+        "| Client | Conversation ID | Prompt / Title | Project / Repo | Turns | Input | Cache Read | Output | Total Tokens | Cache Hit % |"
     )
-    print("| :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    print("| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |")
     for c in report["by_conversation"]:
         short_id = c["conversation_id"][:8]
-        title = (c["title"] or "").replace("|", "\\|")[:55]
+        title = (c["title"] or "").replace("|", "\\|")[:50]
         print(
-            f"| `{short_id}...` | {title} | **{c['repo_name']}** | {c['turn_count']} | "
+            f"| `{c['client_source']}` | `{short_id}...` | {title} | **{c['repo_name']}** | {c['turn_count']} | "
             f"{fmt_num(c['input_tokens'])} | {fmt_num(c['cache_read_tokens'])} | "
             f"{fmt_num(c['output_tokens'])} | **{fmt_num(c['total_tokens'])}** | {c['cache_hit_rate_pct']}% |"
         )
@@ -64,7 +79,7 @@ def print_markdown_report(report: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="View Antigravity LLM token usage per conversation and per project/Git repo."
+        description="View LLM token usage across Antigravity, Claude Code, and Codex CLI."
     )
     parser.add_argument(
         "--workspace",
@@ -77,6 +92,11 @@ def main() -> None:
         "-c",
         default=None,
         help="Optional conversation ID to filter by.",
+    )
+    parser.add_argument(
+        "--client",
+        default=None,
+        help="Optional LLM client filter (antigravity, claude-code, codex-cli).",
     )
     parser.add_argument(
         "--limit",
@@ -95,6 +115,7 @@ def main() -> None:
     report = db_engine.get_token_usage_report(
         workspace_path=args.workspace,
         conversation_id=args.conversation,
+        client_source=args.client,
         limit=args.limit,
     )
     if args.json:

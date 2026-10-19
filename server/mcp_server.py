@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-MCP Server (Stdio JSON-RPC 2.0) for the Antigravity context-graph plugin.
-Exposes tools to query and persist file summaries, code implementation relationships,
-queried/generated LLM data, and token usage per conversation and Git repository.
+MCP Server (Stdio JSON-RPC 2.0) for the Universal Context Graph & Query Cache plugin.
+Compatible with Google Antigravity, Claude Code, Claude Desktop, Cursor, Windsurf,
+Cline, Roo Code, OpenAI Codex CLI, and Gemini CLI.
 """
 
 import json
@@ -44,7 +44,7 @@ TOOLS = [
             "Check if a file is already in the context graph and whether it is fresh (unchanged on disk). "
             "Returns its cached implementation summary, symbols (functions/classes with line numbers), "
             "incoming/outgoing file relationships, and related cached queries. "
-            "If is_stale is false, you do NOT need to spend tokens calling view_file to understand it."
+            "If is_stale is false, you do NOT need to spend tokens reading the full file."
         ),
         "inputSchema": {
             "type": "object",
@@ -248,7 +248,7 @@ TOOLS = [
         "name": "cache_get_token_usage",
         "description": (
             "View LLM token usage (input_tokens, cache_read_tokens, output_tokens, total_tokens, and cache hit rate %) "
-            "broken down per conversation and aggregated by project / related Git repository (repo name, remote URL, branch)."
+            "broken down per conversation, per LLM client (antigravity, claude-code, codex-cli), and aggregated by project / Git repository."
         ),
         "inputSchema": {
             "type": "object",
@@ -260,6 +260,10 @@ TOOLS = [
                 "conversation_id": {
                     "type": "string",
                     "description": "Optional specific conversation ID to inspect.",
+                },
+                "client_source": {
+                    "type": "string",
+                    "description": "Optional LLM client filter: 'antigravity', 'claude-code', 'codex-cli', or 'all'.",
                 },
                 "limit": {
                     "type": "integer",
@@ -329,6 +333,7 @@ def handle_tool_call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         return db_engine.get_token_usage_report(
             workspace_path=args.get("workspace_path"),
             conversation_id=args.get("conversation_id"),
+            client_source=args.get("client_source"),
             limit=int(args.get("limit", 50)),
         )
     else:
@@ -370,7 +375,7 @@ def main() -> None:
                             "capabilities": {"tools": {}},
                             "serverInfo": {
                                 "name": "context-graph-mcp",
-                                "version": "1.1.0",
+                                "version": "1.2.0",
                             },
                         },
                     }

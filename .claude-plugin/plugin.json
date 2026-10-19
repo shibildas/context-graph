@@ -1,0 +1,10 @@
+{
+  "name": "context-graph",
+  "version": "1.2.0",
+  "description": "Persists file summaries, code implementation relationships, queried/generated data, and tracks token usage per conversation and Git repository across LLM tools.",
+  "skills": "./skills/",
+  "agents": [
+    "./agents/context-indexer.md"
+  ],
+  "mcpServers": "./.mcp.json"
+}

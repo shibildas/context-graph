@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-PostToolUse Hook for the Antigravity context-graph plugin.
-Passively tracks file reads, edits, searches, and live conversation token usage
-(linked to the project/Git repository) so the knowledge graph stays in sync.
+Universal PostToolUse Hook for the context-graph plugin.
+Compatible with:
+  - Google Antigravity (`toolCall`, `workspacePaths`, `conversationId`, `transcriptPath`)
+  - Claude Code / Gemini CLI (`tool_name`, `tool_input`, `cwd`, `session_id`, `transcript_path`)
 """
 
 import json
@@ -14,18 +15,37 @@ sys.path.insert(0, os.path.join(PLUGIN_ROOT, "server"))
 
 import db_engine
 
+READ_TOOLS = {"view_file", "Read", "read_file"}
+EDIT_TOOLS = {
+    "replace_file_content",
+    "multi_replace_file_content",
+    "write_to_file",
+    "Edit",
+    "MultiEdit",
+    "Write",
+    "write_file",
+    "edit_file",
+}
+
 
 def handle_post_tool(payload: dict) -> None:
     workspace_paths = payload.get("workspacePaths") or []
-    ws = db_engine.normalize_workspace(workspace_paths[0] if workspace_paths else "global")
-    conv_id = payload.get("conversationId", "")
-    transcript_path = payload.get("transcriptPath", "")
-    model_name = payload.get("modelName", "")
+    raw_ws = (
+        workspace_paths[0]
+        if workspace_paths
+        else (payload.get("cwd") or "global")
+    )
+    ws = db_engine.normalize_workspace(raw_ws)
+    conv_id = payload.get("conversationId") or payload.get("session_id") or ""
+    transcript_path = (
+        payload.get("transcriptPath") or payload.get("transcript_path") or ""
+    )
+    model_name = payload.get("modelName") or payload.get("model") or ""
     ts = db_engine.now_iso()
 
     conn = db_engine.get_connection()
     try:
-        # Sync live conversation token usage and Git repo association
+        # Sync live conversation token usage across Antigravity / Claude Code / Codex CLI
         if transcript_path and os.path.isfile(transcript_path):
             db_engine.sync_transcript_usage(
                 transcript_path=transcript_path,
@@ -39,13 +59,19 @@ def handle_post_tool(payload: dict) -> None:
             conn.commit()
             return
 
+        # Support both Antigravity (`toolCall`) and Claude Code / Gemini CLI (`tool_name` + `tool_input`)
         tool_call = payload.get("toolCall") or {}
-        tool_name = tool_call.get("name", "")
-        args = tool_call.get("args") or {}
+        tool_name = tool_call.get("name") or payload.get("tool_name") or ""
+        args = tool_call.get("args") or payload.get("tool_input") or {}
+        if not isinstance(args, dict):
+            args = {}
 
         target_file = (
             args.get("AbsolutePath")
             or args.get("TargetFile")
+            or args.get("file_path")
+            or args.get("path")
+            or args.get("notebook_path")
             or args.get("SearchPath")
             or args.get("SearchDirectory")
             or ""
@@ -72,6 +98,10 @@ def handle_post_tool(payload: dict) -> None:
                                 "ReplacementContent",
                                 "TargetContent",
                                 "ReplacementChunks",
+                                "content",
+                                "new_string",
+                                "old_string",
+                                "edits",
                             )
                         }
                     )[:500],
@@ -79,7 +109,7 @@ def handle_post_tool(payload: dict) -> None:
                 ),
             )
 
-        if tool_name == "view_file" and target_file:
+        if tool_name in READ_TOOLS and target_file:
             fp = db_engine.normalize_file_path(target_file, ws)
             row = conn.execute(
                 "SELECT read_count FROM files WHERE workspace_path = ? AND file_path = ?",
@@ -111,16 +141,12 @@ def handle_post_tool(payload: dict) -> None:
                         )
                         conn.execute(
                             "UPDATE files SET read_count = 1 WHERE workspace_path = ? AND file_path = ?",
-                            (ts, ws, fp),
+                            (ws, fp),
                         )
                     except Exception:
                         pass
 
-        elif (
-            tool_name
-            in ("replace_file_content", "multi_replace_file_content", "write_to_file")
-            and target_file
-        ):
+        elif tool_name in EDIT_TOOLS and target_file:
             fp = db_engine.normalize_file_path(target_file, ws)
             row = conn.execute(
                 "SELECT edit_count FROM files WHERE workspace_path = ? AND file_path = ?",

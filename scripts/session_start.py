@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-SessionStart Hook for the Antigravity context-graph plugin.
-Automatically loads the cached file summaries, implementation relationships,
-and stored query/generated data for the active workspace and injects a compact
-systemMessage so the LLM doesn't spend tokens re-reading unchanged files.
+Universal SessionStart Hook for the context-graph plugin.
+Compatible with:
+  - Google Antigravity (`workspacePaths` -> `injectSteps.systemMessage`)
+  - Claude Code / Gemini CLI (`cwd` / `hook_event_name` -> `hookSpecificOutput.additionalContext`)
 """
 
 import json
@@ -42,7 +42,7 @@ def build_digest(workspace_path: str) -> str:
             f"**Stats**: {stats['fresh_files']} fresh files, {stats['stale_files']} stale files, "
             f"{stats['total_relationships']} mapped relationships, {stats['total_cached_queries']} cached queries/datasets."
         ),
-        "> **Token-Saving Directive**: Files marked `[FRESH]` have NOT changed on disk since they were analyzed. Rely on the summaries, symbols, and relationships below (or call `cache_get_file_context` / `cache_search`) instead of re-reading full files with `view_file`.",
+        "> **Token-Saving Directive**: Files marked `[FRESH]` have NOT changed on disk since they were analyzed. Rely on the summaries, symbols, and relationships below (or call `cache_get_file_context` / `cache_search`) instead of re-reading full files.",
         "",
     ]
 
@@ -82,12 +82,30 @@ def main() -> None:
     except Exception:
         payload = {}
 
+    # Detect workspace across Antigravity (`workspacePaths`) and Claude Code / Gemini CLI (`cwd`)
     workspace_paths = payload.get("workspacePaths") or []
-    workspace = workspace_paths[0] if workspace_paths else "global"
+    workspace = (
+        workspace_paths[0]
+        if workspace_paths
+        else (payload.get("cwd") or "global")
+    )
+
+    is_claude_or_gemini_cli = (
+        "hook_event_name" in payload or ("cwd" in payload and "workspacePaths" not in payload)
+    )
 
     try:
         digest = build_digest(workspace)
-        if digest:
+        if not digest:
+            out = {}
+        elif is_claude_or_gemini_cli:
+            out = {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": digest,
+                }
+            }
+        else:
             out = {
                 "injectSteps": [
                     {
@@ -97,8 +115,6 @@ def main() -> None:
                     }
                 ]
             }
-        else:
-            out = {}
     except Exception:
         out = {}
 

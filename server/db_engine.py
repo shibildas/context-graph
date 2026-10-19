@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-Core SQLite Knowledge Graph, Query Cache & Token Usage Engine for the Antigravity context-graph plugin.
-Zero external dependencies (uses Python standard library sqlite3, ast, hashlib, json, re, configparser).
+Core SQLite Knowledge Graph, Query Cache & Multi-LLM Token Usage Engine (`context-graph`).
+Supports:
+  - Google Antigravity
+  - Claude Code / Claude Desktop
+  - Cursor / Windsurf / Cline
+  - OpenAI Codex CLI
+  - Google Gemini CLI
+Zero external dependencies (uses Python 3 standard library only).
 """
 
 import ast
@@ -18,7 +24,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 DEFAULT_DB_DIR = os.path.expanduser("~/.gemini/context-graph")
 DEFAULT_DB_PATH = os.path.join(DEFAULT_DB_DIR, "cache.db")
-DEFAULT_BRAIN_DIR = os.path.expanduser("~/.gemini/antigravity/brain")
+
+ANTIGRAVITY_BRAIN_DIR = os.path.expanduser("~/.gemini/antigravity/brain")
+CLAUDE_PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
+CODEX_SESSIONS_DIR = os.path.expanduser("~/.codex/sessions")
+GEMINI_CLI_TMP_DIR = os.path.expanduser("~/.gemini/tmp")
 
 IGNORED_DIRS = {
     ".git",
@@ -286,6 +296,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
 
         CREATE TABLE IF NOT EXISTS conversation_usage (
             conversation_id TEXT PRIMARY KEY,
+            client_source TEXT DEFAULT 'antigravity',
             workspace_path TEXT NOT NULL,
             repo_root TEXT DEFAULT '',
             repo_name TEXT DEFAULT '',
@@ -312,6 +323,15 @@ def init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_conv_usage_ws ON conversation_usage(workspace_path);
         """
     )
+    # Migrate existing table if client_source column was not present yet
+    cols = [
+        r["name"]
+        for r in conn.execute("PRAGMA table_info(conversation_usage)").fetchall()
+    ]
+    if "client_source" not in cols:
+        conn.execute(
+            "ALTER TABLE conversation_usage ADD COLUMN client_source TEXT DEFAULT 'antigravity'"
+        )
     conn.commit()
 
 
@@ -602,7 +622,7 @@ def get_file_context(
             "is_stale": staleness["is_stale"],
             "staleness_reason": staleness["reason"],
             "token_saving_advice": (
-                "FRESH: Do NOT re-read this file with view_file unless you need exact lines for editing."
+                "FRESH: Do NOT re-read this file with view_file/Read unless you need exact lines for editing."
                 if not staleness["is_stale"]
                 else "STALE: File was modified on disk since last cached. Re-read changed sections and update cache."
             ),
@@ -844,7 +864,7 @@ def search_cache(
         conn.close()
 
 
-# --- Token Usage & Related Repo Tracking ---
+# --- Multi-LLM Token Usage & Related Repo Tracking ---
 
 
 def _extract_user_request_title(content: str) -> str:
@@ -863,6 +883,87 @@ def _unquote_arg(val: Any) -> str:
     return s
 
 
+def _upsert_conversation_usage(
+    conn: sqlite3.Connection,
+    conversation_id: str,
+    client_source: str,
+    ws: str,
+    model_name: str,
+    title: str,
+    turn_count: int,
+    input_tokens: int,
+    cache_read_tokens: int,
+    output_tokens: int,
+    transcript_path: str,
+    st_mtime: float,
+    started_at: str,
+    updated_at: str,
+) -> Dict[str, Any]:
+    repo_info = detect_git_repo_info(ws)
+    total_tokens = input_tokens + cache_read_tokens + output_tokens
+    ts = updated_at or now_iso()
+
+    conn.execute(
+        """
+        INSERT INTO conversation_usage (
+            conversation_id, client_source, workspace_path, repo_root, repo_name,
+            git_remote, git_branch, model_name, title,
+            turn_count, input_tokens, cache_read_tokens, output_tokens,
+            total_tokens, transcript_path, transcript_mtime, started_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(conversation_id) DO UPDATE SET
+            client_source = excluded.client_source,
+            workspace_path = CASE WHEN excluded.workspace_path != 'global' THEN excluded.workspace_path ELSE conversation_usage.workspace_path END,
+            repo_root = CASE WHEN excluded.repo_root != '' THEN excluded.repo_root ELSE conversation_usage.repo_root END,
+            repo_name = CASE WHEN excluded.repo_name != 'unscoped / global' THEN excluded.repo_name ELSE conversation_usage.repo_name END,
+            git_remote = CASE WHEN excluded.git_remote != '' THEN excluded.git_remote ELSE conversation_usage.git_remote END,
+            git_branch = CASE WHEN excluded.git_branch != '' THEN excluded.git_branch ELSE conversation_usage.git_branch END,
+            model_name = CASE WHEN excluded.model_name != 'auto' AND excluded.model_name != '' THEN excluded.model_name ELSE conversation_usage.model_name END,
+            title = CASE WHEN excluded.title != '' THEN excluded.title ELSE conversation_usage.title END,
+            turn_count = excluded.turn_count,
+            input_tokens = excluded.input_tokens,
+            cache_read_tokens = excluded.cache_read_tokens,
+            output_tokens = excluded.output_tokens,
+            total_tokens = excluded.total_tokens,
+            transcript_path = excluded.transcript_path,
+            transcript_mtime = excluded.transcript_mtime,
+            started_at = CASE WHEN conversation_usage.started_at != '' THEN conversation_usage.started_at ELSE excluded.started_at END,
+            updated_at = excluded.updated_at
+        """,
+        (
+            conversation_id,
+            client_source,
+            ws,
+            repo_info["repo_root"],
+            repo_info["repo_name"],
+            repo_info["git_remote"],
+            repo_info["git_branch"],
+            model_name or "auto",
+            title,
+            turn_count,
+            input_tokens,
+            cache_read_tokens,
+            output_tokens,
+            total_tokens,
+            transcript_path,
+            st_mtime,
+            started_at or ts,
+            ts,
+        ),
+    )
+    return {
+        "conversation_id": conversation_id,
+        "client_source": client_source,
+        "workspace_path": ws,
+        "repo_name": repo_info["repo_name"],
+        "turn_count": turn_count,
+        "input_tokens": input_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
 def sync_transcript_usage(
     transcript_path: str,
     conversation_id: str = "",
@@ -871,9 +972,10 @@ def sync_transcript_usage(
     conn: Optional[sqlite3.Connection] = None,
 ) -> Optional[Dict[str, Any]]:
     """
-    Parses an Antigravity transcript.jsonl file, sums input_tokens, cache_read_tokens,
-    and output_tokens across all PLANNER_RESPONSE steps, infers the project/git repo if
-    workspace_path is not explicitly set, and upserts into conversation_usage.
+    Universal transcript parser supporting:
+      1. Google Antigravity (`transcript.jsonl`)
+      2. Claude Code (`~/.claude/projects/*/*.jsonl`)
+      3. OpenAI Codex CLI (`~/.codex/sessions/**/*.jsonl`)
     """
     if not transcript_path or not os.path.isfile(transcript_path):
         return None
@@ -883,15 +985,27 @@ def sync_transcript_usage(
     except OSError:
         return None
 
+    norm_tpath = os.path.normpath(transcript_path)
+    parts = norm_tpath.split(os.sep)
+
+    # Detect client format from path or content
+    client_source = "antigravity"
+    if ".claude" in parts:
+        client_source = "claude-code"
+    elif ".codex" in parts:
+        client_source = "codex-cli"
+
     if not conversation_id:
-        # Infer from ~/.gemini/antigravity/brain/<conv-id>/.system_generated/logs/transcript.jsonl
-        parts = os.path.normpath(transcript_path).split(os.sep)
         if "brain" in parts:
             idx = parts.index("brain")
             if idx + 1 < len(parts):
                 conversation_id = parts[idx + 1]
         if not conversation_id:
-            conversation_id = hashlib.sha256(transcript_path.encode("utf-8")).hexdigest()[:16]
+            base = os.path.splitext(os.path.basename(transcript_path))[0]
+            if base and base != "transcript":
+                conversation_id = base
+            else:
+                conversation_id = hashlib.sha256(transcript_path.encode("utf-8")).hexdigest()[:16]
 
     own_conn = False
     if conn is None:
@@ -931,52 +1045,119 @@ def sync_transcript_usage(
                 except json.JSONDecodeError:
                     continue
 
-                created_at = step.get("created_at", "")
-                if created_at:
-                    if not started_at:
-                        started_at = created_at
-                    last_step_at = created_at
-
+                # 1. Antigravity format (`PLANNER_RESPONSE` / `USER_INPUT`)
                 stype = step.get("type", "")
-                content = step.get("content", "")
+                if stype in ("USER_INPUT", "PLANNER_RESPONSE", "GENERIC"):
+                    created_at = step.get("created_at", "")
+                    if created_at:
+                        if not started_at:
+                            started_at = created_at
+                        last_step_at = created_at
 
-                if stype == "USER_INPUT" and not title and content:
-                    title = _extract_user_request_title(content)
+                    content = step.get("content", "")
+                    if stype == "USER_INPUT" and not title and content:
+                        title = _extract_user_request_title(content)
 
-                if not model_name and "USER_SETTINGS_CHANGE" in content:
-                    m_mod = re.search(r"Model Selection` from .*? to ([^\.\n]+)", content)
-                    if m_mod:
-                        model_name = m_mod.group(1).strip()
+                    if not model_name and "USER_SETTINGS_CHANGE" in content:
+                        m_mod = re.search(r"Model Selection` from .*? to ([^\.\n]+)", content)
+                        if m_mod:
+                            model_name = m_mod.group(1).strip()
 
-                if stype == "PLANNER_RESPONSE":
-                    in_tok = int(step.get("input_tokens") or 0)
-                    cr_tok = int(step.get("cache_read_tokens") or 0)
-                    out_tok = int(step.get("output_tokens") or 0)
-                    if in_tok or cr_tok or out_tok:
-                        input_tokens += in_tok
-                        cache_read_tokens += cr_tok
-                        output_tokens += out_tok
-                        turn_count += 1
+                    if stype == "PLANNER_RESPONSE":
+                        in_tok = int(step.get("input_tokens") or 0)
+                        cr_tok = int(step.get("cache_read_tokens") or 0)
+                        out_tok = int(step.get("output_tokens") or 0)
+                        if in_tok or cr_tok or out_tok:
+                            input_tokens += in_tok
+                            cache_read_tokens += cr_tok
+                            output_tokens += out_tok
+                            turn_count += 1
 
-                    for tc in step.get("tool_calls") or []:
-                        targs = tc.get("args") or {}
-                        for key in ("TargetFile", "AbsolutePath", "SearchPath", "Cwd", "workspace_path"):
-                            val = _unquote_arg(targs.get(key, ""))
-                            if (
-                                val
-                                and val.startswith("/")
-                                and "/.gemini/antigravity/" not in val
-                                and "/.gemini/config/" not in val
-                                and not val.startswith("/tmp")
-                            ):
-                                inferred_paths.append(val)
+                        for tc in step.get("tool_calls") or []:
+                            targs = tc.get("args") or {}
+                            for key in ("TargetFile", "AbsolutePath", "SearchPath", "Cwd", "workspace_path"):
+                                val = _unquote_arg(targs.get(key, ""))
+                                if (
+                                    val
+                                    and val.startswith("/")
+                                    and "/.gemini/antigravity/" not in val
+                                    and "/.gemini/config/" not in val
+                                    and not val.startswith("/tmp")
+                                ):
+                                    inferred_paths.append(val)
+                    continue
+
+                # 2. Claude Code JSONL format (`type: "user" | "assistant"`, `message.usage`, `cwd`)
+                if "message" in step and isinstance(step["message"], dict):
+                    client_source = "claude-code"
+                    ts_val = step.get("timestamp", "")
+                    if ts_val:
+                        if not started_at:
+                            started_at = ts_val
+                        last_step_at = ts_val
+
+                    if step.get("cwd") and step["cwd"].startswith("/"):
+                        inferred_paths.append(step["cwd"])
+
+                    msg = step["message"]
+                    role = msg.get("role") or step.get("type")
+                    if role == "user" and not title:
+                        msg_content = msg.get("content")
+                        if isinstance(msg_content, str):
+                            title = msg_content.strip().splitlines()[0][:100]
+                        elif isinstance(msg_content, list):
+                            for part in msg_content:
+                                if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                                    title = part["text"].strip().splitlines()[0][:100]
+                                    break
+
+                    if role == "assistant":
+                        if msg.get("model") and not model_name:
+                            model_name = str(msg["model"])
+                        usage = msg.get("usage") or {}
+                        in_tok = int(usage.get("input_tokens") or 0) + int(
+                            usage.get("cache_creation_input_tokens") or 0
+                        )
+                        cr_tok = int(usage.get("cache_read_input_tokens") or 0)
+                        out_tok = int(usage.get("output_tokens") or 0)
+                        if in_tok or cr_tok or out_tok:
+                            input_tokens += in_tok
+                            cache_read_tokens += cr_tok
+                            output_tokens += out_tok
+                            turn_count += 1
+                    continue
+
+                # 3. OpenAI Codex CLI JSONL format
+                if stype in ("event_msg", "turn_context", "session_meta"):
+                    client_source = "codex-cli"
+                    ts_val = step.get("timestamp", "")
+                    if ts_val:
+                        if not started_at:
+                            started_at = ts_val
+                        last_step_at = ts_val
+                    pl = step.get("payload") or {}
+                    if isinstance(pl, dict):
+                        if pl.get("cwd"):
+                            inferred_paths.append(pl["cwd"])
+                        if pl.get("model") and not model_name:
+                            model_name = str(pl["model"])
+                        if pl.get("type") == "token_count":
+                            info = pl.get("info") or {}
+                            last_u = info.get("last_token_usage") or {}
+                            in_tok = int(last_u.get("input_tokens") or 0)
+                            cr_tok = int(last_u.get("cached_input_tokens") or 0)
+                            out_tok = int(last_u.get("output_tokens") or 0)
+                            if in_tok or cr_tok or out_tok:
+                                input_tokens += in_tok
+                                cache_read_tokens += cr_tok
+                                output_tokens += out_tok
+                                turn_count += 1
 
         ws = normalize_workspace(workspace_path)
         if ws == "global" and existing and existing["workspace_path"] != "global":
             ws = existing["workspace_path"]
 
         if ws == "global" and inferred_paths:
-            # Prefer a path that belongs to a git repo, or the most frequent directory
             for p in reversed(inferred_paths):
                 info = detect_git_repo_info(p)
                 if info["repo_root"] and os.path.exists(os.path.join(info["repo_root"], ".git")):
@@ -986,84 +1167,61 @@ def sync_transcript_usage(
                 first_p = inferred_paths[-1]
                 ws = first_p if os.path.isdir(first_p) else os.path.dirname(first_p)
 
-        repo_info = detect_git_repo_info(ws)
-        total_tokens = input_tokens + cache_read_tokens + output_tokens
         final_model = model_name or (existing["model_name"] if existing else "auto") or "auto"
-        ts = last_step_at or now_iso()
-
-        conn.execute(
-            """
-            INSERT INTO conversation_usage (
-                conversation_id, workspace_path, repo_root, repo_name,
-                git_remote, git_branch, model_name, title,
-                turn_count, input_tokens, cache_read_tokens, output_tokens,
-                total_tokens, transcript_path, transcript_mtime, started_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(conversation_id) DO UPDATE SET
-                workspace_path = CASE WHEN excluded.workspace_path != 'global' THEN excluded.workspace_path ELSE conversation_usage.workspace_path END,
-                repo_root = CASE WHEN excluded.repo_root != '' THEN excluded.repo_root ELSE conversation_usage.repo_root END,
-                repo_name = CASE WHEN excluded.repo_name != 'unscoped / global' THEN excluded.repo_name ELSE conversation_usage.repo_name END,
-                git_remote = CASE WHEN excluded.git_remote != '' THEN excluded.git_remote ELSE conversation_usage.git_remote END,
-                git_branch = CASE WHEN excluded.git_branch != '' THEN excluded.git_branch ELSE conversation_usage.git_branch END,
-                model_name = CASE WHEN excluded.model_name != 'auto' THEN excluded.model_name ELSE conversation_usage.model_name END,
-                title = CASE WHEN excluded.title != '' THEN excluded.title ELSE conversation_usage.title END,
-                turn_count = excluded.turn_count,
-                input_tokens = excluded.input_tokens,
-                cache_read_tokens = excluded.cache_read_tokens,
-                output_tokens = excluded.output_tokens,
-                total_tokens = excluded.total_tokens,
-                transcript_path = excluded.transcript_path,
-                transcript_mtime = excluded.transcript_mtime,
-                started_at = CASE WHEN conversation_usage.started_at != '' THEN conversation_usage.started_at ELSE excluded.started_at END,
-                updated_at = excluded.updated_at
-            """,
-            (
-                conversation_id,
-                ws,
-                repo_info["repo_root"],
-                repo_info["repo_name"],
-                repo_info["git_remote"],
-                repo_info["git_branch"],
-                final_model,
-                title,
-                turn_count,
-                input_tokens,
-                cache_read_tokens,
-                output_tokens,
-                total_tokens,
-                transcript_path,
-                st_mtime,
-                started_at or ts,
-                ts,
-            ),
+        res = _upsert_conversation_usage(
+            conn=conn,
+            conversation_id=conversation_id,
+            client_source=client_source,
+            ws=ws,
+            model_name=final_model,
+            title=title,
+            turn_count=turn_count,
+            input_tokens=input_tokens,
+            cache_read_tokens=cache_read_tokens,
+            output_tokens=output_tokens,
+            transcript_path=transcript_path,
+            st_mtime=st_mtime,
+            started_at=started_at,
+            updated_at=last_step_at,
         )
         if own_conn:
             conn.commit()
-        return {
-            "conversation_id": conversation_id,
-            "workspace_path": ws,
-            "repo_name": repo_info["repo_name"],
-            "turn_count": turn_count,
-            "input_tokens": input_tokens,
-            "cache_read_tokens": cache_read_tokens,
-            "output_tokens": output_tokens,
-            "total_tokens": total_tokens,
-        }
+        return res
     finally:
         if own_conn:
             conn.close()
 
 
-def scan_all_brain_transcripts(conn: sqlite3.Connection) -> int:
-    """Scans ~/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl and syncs token usage."""
-    if not os.path.isdir(DEFAULT_BRAIN_DIR):
-        return 0
-    pattern = os.path.join(DEFAULT_BRAIN_DIR, "*", ".system_generated", "logs", "transcript.jsonl")
+def scan_all_llm_transcripts(conn: sqlite3.Connection) -> int:
+    """
+    Scans transcript logs across Antigravity, Claude Code, and Codex CLI,
+    syncing token usage and Git repository links into SQLite.
+    """
     synced = 0
-    for tpath in glob.glob(pattern):
-        res = sync_transcript_usage(tpath, conn=conn)
-        if res:
-            synced += 1
+
+    # 1. Google Antigravity
+    if os.path.isdir(ANTIGRAVITY_BRAIN_DIR):
+        pattern = os.path.join(
+            ANTIGRAVITY_BRAIN_DIR, "*", ".system_generated", "logs", "transcript.jsonl"
+        )
+        for tpath in glob.glob(pattern):
+            if sync_transcript_usage(tpath, conn=conn):
+                synced += 1
+
+    # 2. Claude Code (~/.claude/projects/*/*.jsonl)
+    if os.path.isdir(CLAUDE_PROJECTS_DIR):
+        pattern = os.path.join(CLAUDE_PROJECTS_DIR, "*", "*.jsonl")
+        for tpath in glob.glob(pattern):
+            if sync_transcript_usage(tpath, conn=conn):
+                synced += 1
+
+    # 3. Codex CLI (~/.codex/sessions/**/*.jsonl)
+    if os.path.isdir(CODEX_SESSIONS_DIR):
+        pattern = os.path.join(CODEX_SESSIONS_DIR, "**", "*.jsonl")
+        for tpath in glob.glob(pattern, recursive=True):
+            if sync_transcript_usage(tpath, conn=conn):
+                synced += 1
+
     conn.commit()
     return synced
 
@@ -1071,14 +1229,15 @@ def scan_all_brain_transcripts(conn: sqlite3.Connection) -> int:
 def get_token_usage_report(
     workspace_path: Optional[str] = None,
     conversation_id: Optional[str] = None,
+    client_source: Optional[str] = None,
     limit: int = 50,
 ) -> Dict[str, Any]:
     """
-    Returns token usage per conversation and aggregated by project / related Git repository.
+    Returns token usage per conversation, per LLM client, and aggregated by project / Git repository.
     """
     conn = get_connection()
     try:
-        scan_all_brain_transcripts(conn)
+        scan_all_llm_transcripts(conn)
 
         params: List[Any] = []
         where_clauses: List[str] = []
@@ -1086,6 +1245,10 @@ def get_token_usage_report(
         if conversation_id:
             where_clauses.append("conversation_id = ?")
             params.append(conversation_id.strip())
+
+        if client_source and client_source.lower() not in ("all", "*"):
+            where_clauses.append("client_source = ?")
+            params.append(client_source.strip().lower())
 
         ws = normalize_workspace(workspace_path)
         if ws != "global":
@@ -1123,6 +1286,24 @@ def get_token_usage_report(
             FROM conversation_usage
             {where_sql}
             GROUP BY project_root
+            ORDER BY total_tokens DESC
+            """,
+            tuple(params),
+        ).fetchall()
+
+        client_rows = conn.execute(
+            f"""
+            SELECT
+                client_source,
+                COUNT(*) AS conversation_count,
+                SUM(turn_count) AS total_turns,
+                SUM(input_tokens) AS input_tokens,
+                SUM(cache_read_tokens) AS cache_read_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(total_tokens) AS total_tokens
+            FROM conversation_usage
+            {where_sql}
+            GROUP BY client_source
             ORDER BY total_tokens DESC
             """,
             tuple(params),
@@ -1168,6 +1349,27 @@ def get_token_usage_report(
                 }
             )
 
+        by_client = []
+        for cl in client_rows:
+            in_t = int(cl["input_tokens"] or 0)
+            cr_t = int(cl["cache_read_tokens"] or 0)
+            out_t = int(cl["output_tokens"] or 0)
+            tot_t = int(cl["total_tokens"] or 0)
+            prompt_total = in_t + cr_t
+            cache_hit_pct = round((cr_t / prompt_total) * 100, 1) if prompt_total > 0 else 0.0
+            by_client.append(
+                {
+                    "client_source": cl["client_source"] or "antigravity",
+                    "conversation_count": int(cl["conversation_count"] or 0),
+                    "total_turns": int(cl["total_turns"] or 0),
+                    "input_tokens": in_t,
+                    "cache_read_tokens": cr_t,
+                    "output_tokens": out_t,
+                    "total_tokens": tot_t,
+                    "cache_hit_rate_pct": cache_hit_pct,
+                }
+            )
+
         conversations = []
         for c in conv_rows:
             in_t = int(c["input_tokens"] or 0)
@@ -1180,6 +1382,7 @@ def get_token_usage_report(
             conversations.append(
                 {
                     "conversation_id": c["conversation_id"],
+                    "client_source": c["client_source"] or "antigravity",
                     "title": c["title"] or "(Untitled conversation)",
                     "project_root": c["repo_root"] or c["workspace_path"],
                     "repo_name": c["repo_name"] or "unscoped / global",
@@ -1210,6 +1413,7 @@ def get_token_usage_report(
                 "total_tokens": grand_total,
                 "cache_hit_rate_pct": grand_cache_pct,
             },
+            "by_client": by_client,
             "by_project_repo": by_project_repo,
             "by_conversation": conversations,
         }
