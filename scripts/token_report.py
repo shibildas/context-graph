@@ -34,75 +34,87 @@ def print_markdown_report(report: dict) -> None:
         f"**Features Tracked**: {gt.get('total_features', len(report.get('by_feature', [])))} | "
         f"**Total Tokens**: `{fmt_num(gt['total_tokens'])}` "
         f"(Input: `{fmt_num(gt['input_tokens'])}`, "
-        f"Cache Read: `{fmt_num(gt['cache_read_tokens'])}` [{gt['cache_hit_rate_pct']}%], "
+        f"API Prefix Cache: `{fmt_num(gt['cache_read_tokens'])}` [{gt['cache_hit_rate_pct']}%], "
         f"Output: `{fmt_num(gt['output_tokens'])}`)\n"
-        f"**Est. Actual Cost**: `{fmt_usd(gt.get('estimated_cost_usd', 0.0))}` | "
-        f"**Saved by Prompt Cache**: `{fmt_usd(gt.get('estimated_cache_savings_usd', 0.0))}` "
-        f"(Uncached would be `{fmt_usd(gt.get('uncached_cost_usd', 0.0))}`)\n"
+        f"**Est. Actual LLM Cost**: `{fmt_usd(gt.get('estimated_cost_usd', 0.0))}` | "
+        f"**Context-Graph Plugin Calls**: `{fmt_num(gt.get('plugin_calls', 0))}` | "
+        f"**Plugin Tokens Saved**: `{fmt_num(gt.get('plugin_tokens_saved', 0))}` | "
+        f"**Saved by Plugin**: `{fmt_usd(gt.get('estimated_cache_savings_usd', 0.0))}`\n"
     )
 
     if report.get("by_feature"):
         print("## 1. Cost & Token Usage per Feature (Branches & Tasks)\n")
         print(
-            "| Feature / Task | Ticket(s) | Repo(s) | Branch(es) | Convs | Turns | Total Tokens | Cache Hit % | Actual Cost ($) | Saved by Cache ($) |"
+            "| Feature / Task | Ticket(s) | Repo(s) | Convs | Turns | Total Tokens | Plugin Used | Plugin Tokens Saved | Actual Cost ($) | Saved by Plugin ($) |"
         )
-        print("| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |")
+        print("| :--- | :--- | :--- | ---: | ---: | ---: | :--- | ---: | ---: | ---: |")
         for f in report["by_feature"]:
-            fname = (f["feature_name"] or "").replace("|", "\\|")[:45]
+            fname = (f["feature_name"] or "").replace("|", "\\|")[:42]
             ticket = f.get("ticket_id") or "-"
-            repos = (f.get("repo_name") or "-").replace("|", "\\|")[:32]
-            branches = (f.get("git_branch") or "-").replace("|", "\\|")[:36]
+            repos = (f.get("repo_name") or "-").replace("|", "\\|")[:28]
+            p_calls = int(f.get("plugin_calls") or 0)
+            p_used = f"Yes ({p_calls})" if p_calls > 0 else "No"
+            p_tok = fmt_num(int(f.get("plugin_tokens_saved") or 0)) if p_calls > 0 else "0"
+            p_sav = fmt_usd(f.get("estimated_cache_savings_usd", 0.0)) if p_calls > 0 else "$0.00"
             print(
-                f"| **{fname}** | `{ticket}` | `{repos}` | `{branches}` | "
+                f"| **{fname}** | `{ticket}` | `{repos}` | "
                 f"{f['conversation_count']} | {f['total_turns']} | "
-                f"**{fmt_num(f['total_tokens'])}** | {f['cache_hit_rate_pct']}% | "
-                f"**{fmt_usd(f.get('estimated_cost_usd', 0.0))}** | {fmt_usd(f.get('estimated_cache_savings_usd', 0.0))} |"
+                f"**{fmt_num(f['total_tokens'])}** | `{p_used}` | {p_tok} | "
+                f"**{fmt_usd(f.get('estimated_cost_usd', 0.0))}** | {p_sav} |"
             )
         print("")
 
     if report.get("by_client"):
         print("## 2. Token Usage & Cost by LLM Client\n")
         print(
-            "| LLM Client | Convs | Turns | Input Tokens | Cache Read Tokens | Output Tokens | Total Tokens | Cache Hit % | Actual Cost ($) | Saved by Cache ($) |"
+            "| LLM Client | Convs | Turns | Input Tokens | API Cache Read | Output Tokens | Total Tokens | Plugin Calls | Actual Cost ($) | Saved by Plugin ($) |"
         )
         print("| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
         for cl in report["by_client"]:
+            p_calls = int(cl.get("plugin_calls") or 0)
+            p_sav = fmt_usd(cl.get("estimated_cache_savings_usd", 0.0)) if p_calls > 0 else "$0.00"
             print(
                 f"| **`{cl['client_source']}`** | {cl['conversation_count']} | {cl['total_turns']} | "
                 f"{fmt_num(cl['input_tokens'])} | {fmt_num(cl['cache_read_tokens'])} | "
-                f"{fmt_num(cl['output_tokens'])} | **{fmt_num(cl['total_tokens'])}** | {cl['cache_hit_rate_pct']}% | "
-                f"**{fmt_usd(cl.get('estimated_cost_usd', 0.0))}** | {fmt_usd(cl.get('estimated_cache_savings_usd', 0.0))} |"
+                f"{fmt_num(cl['output_tokens'])} | **{fmt_num(cl['total_tokens'])}** | {p_calls} | "
+                f"**{fmt_usd(cl.get('estimated_cost_usd', 0.0))}** | {p_sav} |"
             )
         print("")
 
     print("## 3. Token Usage & Cost by Project / Related Git Repo\n")
     print(
-        "| Project / Git Repo | Branch | Convs | Turns | Input Tokens | Cache Read Tokens | Output Tokens | Total Tokens | Cache Hit % | Actual Cost ($) | Saved ($) |"
+        "| Project / Git Repo | Branch | Convs | Turns | Total Tokens | Plugin Used | Plugin Tokens Saved | Actual Cost ($) | Saved by Plugin ($) |"
     )
-    print("| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    print("| :--- | :--- | ---: | ---: | ---: | :--- | ---: | ---: | ---: |")
     for p in report["by_project_repo"]:
         branch = p["git_branch"] or "-"
+        p_calls = int(p.get("plugin_calls") or 0)
+        p_used = f"Yes ({p_calls})" if p_calls > 0 else "No"
+        p_tok = fmt_num(int(p.get("plugin_tokens_saved") or 0)) if p_calls > 0 else "0"
+        p_sav = fmt_usd(p.get("estimated_cache_savings_usd", 0.0)) if p_calls > 0 else "$0.00"
         print(
             f"| **{p['repo_name']}** (`{p['project_root']}`) | `{branch}` | "
             f"{p['conversation_count']} | {p['total_turns']} | "
-            f"{fmt_num(p['input_tokens'])} | {fmt_num(p['cache_read_tokens'])} | "
-            f"{fmt_num(p['output_tokens'])} | **{fmt_num(p['total_tokens'])}** | {p['cache_hit_rate_pct']}% | "
-            f"**{fmt_usd(p.get('estimated_cost_usd', 0.0))}** | {fmt_usd(p.get('estimated_cache_savings_usd', 0.0))} |"
+            f"**{fmt_num(p['total_tokens'])}** | `{p_used}` | {p_tok} | "
+            f"**{fmt_usd(p.get('estimated_cost_usd', 0.0))}** | {p_sav} |"
         )
     print("")
 
     print("## 4. Token Usage & Cost per Conversation\n")
     print(
-        "| Client | Conv ID | Feature / Prompt | Project / Repo | Turns | Total Tokens | Hit % | Cost ($) | Saved ($) |"
+        "| Client | Conv ID | Feature / Prompt | Project / Repo | Turns | Total Tokens | Plugin Used | Cost ($) | Saved by Plugin ($) |"
     )
-    print("| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |")
+    print("| :--- | :--- | :--- | :--- | ---: | ---: | :--- | ---: | ---: |")
     for c in report["by_conversation"]:
         short_id = c["conversation_id"][:8]
-        title = (c.get("feature_name") or c["title"] or "").replace("|", "\\|")[:46]
+        title = (c.get("feature_name") or c["title"] or "").replace("|", "\\|")[:42]
+        p_calls = int(c.get("plugin_calls") or 0)
+        p_used = f"Yes ({p_calls})" if p_calls > 0 else "No"
+        p_sav = fmt_usd(c.get("estimated_cache_savings_usd", 0.0)) if p_calls > 0 else "$0.00"
         print(
             f"| `{c['client_source']}` | `{short_id}...` | {title} | **{c['repo_name']}** | {c['turn_count']} | "
-            f"**{fmt_num(c['total_tokens'])}** | {c['cache_hit_rate_pct']}% | "
-            f"**{fmt_usd(c.get('estimated_cost_usd', 0.0))}** | {fmt_usd(c.get('estimated_cache_savings_usd', 0.0))} |"
+            f"**{fmt_num(c['total_tokens'])}** | `{p_used}` | "
+            f"**{fmt_usd(c.get('estimated_cost_usd', 0.0))}** | {p_sav} |"
         )
 
 

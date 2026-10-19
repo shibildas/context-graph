@@ -44,17 +44,29 @@ class TestContextGraphEngine(unittest.TestCase):
         self.assertIn("<REDACTED>", scrubbed)
 
     def test_estimate_token_cost_and_feature_derivation(self) -> None:
-        cost = db_engine.estimate_token_cost(
+        # Without plugin usage (plugin_tokens_saved=0), plugin savings must be strictly $0.00
+        cost_no_plugin = db_engine.estimate_token_cost(
             model_name="Gemini 4 Argon (Medium)",
             input_tokens=1_000_000,
             cache_read_tokens=4_000_000,
             output_tokens=100_000,
+            plugin_tokens_saved=0,
         )
         # 1M * $1.25 + 4M * $0.3125 + 0.1M * $5.00 = $1.25 + $1.25 + $0.50 = $3.00
-        self.assertAlmostEqual(cost["estimated_cost_usd"], 3.00, places=2)
-        # Uncached: 5M * $1.25 + 0.1M * $5.00 = $6.25 + $0.50 = $6.75 -> savings = $3.75
-        self.assertAlmostEqual(cost["uncached_cost_usd"], 6.75, places=2)
-        self.assertAlmostEqual(cost["estimated_cache_savings_usd"], 3.75, places=2)
+        self.assertAlmostEqual(cost_no_plugin["estimated_cost_usd"], 3.00, places=2)
+        self.assertEqual(cost_no_plugin["estimated_cache_savings_usd"], 0.00)
+
+        # With plugin usage saving 2M input tokens (2M * $1.25 = $2.50 saved)
+        cost_with_plugin = db_engine.estimate_token_cost(
+            model_name="Gemini 4 Argon (Medium)",
+            input_tokens=1_000_000,
+            cache_read_tokens=4_000_000,
+            output_tokens=100_000,
+            plugin_tokens_saved=2_000_000,
+        )
+        self.assertAlmostEqual(cost_with_plugin["estimated_cache_savings_usd"], 2.50, places=2)
+        self.assertAlmostEqual(cost_with_plugin["uncached_cost_usd"], 5.50, places=2)
+
 
         f1 = db_engine.derive_feature_info(
             "fa", "1643-foundation-batch-associate-and-quit-logic", "some prompt"

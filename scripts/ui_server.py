@@ -141,7 +141,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 class="text-base font-semibold">Cost &amp; Token Usage per Feature (Git Branches &amp; Tasks)</h2>
-            <p class="text-xs cg-muted">Automatically groups conversations by normalized feature branch, ticket ID, or prompt task across repositories</p>
+            <p class="text-xs cg-muted">Plugin savings are strictly $0.00 for features/tasks where the context-graph plugin was not invoked</p>
           </div>
           <input id="feature-search" oninput="renderTokens()" type="text" placeholder="Filter feature, ticket (#1643), or repo..." class="cg-input rounded-lg px-3 py-1.5 text-xs w-72" />
         </div>
@@ -155,9 +155,10 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
                 <th class="py-2 px-3 text-right">Convs</th>
                 <th class="py-2 px-3 text-right">Turns</th>
                 <th class="py-2 px-3 text-right">Total Tokens</th>
-                <th class="py-2 px-3 text-right">Cache Hit %</th>
+                <th class="py-2 px-3 text-center">Plugin Used</th>
+                <th class="py-2 px-3 text-right">Plugin Tokens Saved</th>
                 <th class="py-2 px-3 text-right">Actual Cost ($)</th>
-                <th class="py-2 px-3 text-right">Saved by Cache ($)</th>
+                <th class="py-2 px-3 text-right">Saved by Plugin ($)</th>
               </tr>
             </thead>
             <tbody id="table-features"></tbody>
@@ -178,12 +179,12 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
                 <th class="py-2 px-3 text-right">Conversations</th>
                 <th class="py-2 px-3 text-right">Turns</th>
                 <th class="py-2 px-3 text-right">Input Tokens</th>
-                <th class="py-2 px-3 text-right">Cache Read Tokens</th>
+                <th class="py-2 px-3 text-right">API Prefix Cache</th>
                 <th class="py-2 px-3 text-right">Output Tokens</th>
                 <th class="py-2 px-3 text-right">Total Tokens</th>
-                <th class="py-2 px-3 text-right">Cache Hit %</th>
+                <th class="py-2 px-3 text-right">Plugin Calls</th>
                 <th class="py-2 px-3 text-right">Actual Cost ($)</th>
-                <th class="py-2 px-3 text-right">Saved by Cache ($)</th>
+                <th class="py-2 px-3 text-right">Saved by Plugin ($)</th>
               </tr>
             </thead>
             <tbody id="table-clients"></tbody>
@@ -204,13 +205,11 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
                 <th class="py-2 px-3">Branch</th>
                 <th class="py-2 px-3 text-right">Convs</th>
                 <th class="py-2 px-3 text-right">Turns</th>
-                <th class="py-2 px-3 text-right">Input Tokens</th>
-                <th class="py-2 px-3 text-right">Cache Read</th>
-                <th class="py-2 px-3 text-right">Output</th>
                 <th class="py-2 px-3 text-right">Total Tokens</th>
-                <th class="py-2 px-3 text-right">Cache Hit %</th>
+                <th class="py-2 px-3 text-center">Plugin Used</th>
+                <th class="py-2 px-3 text-right">Plugin Tokens Saved</th>
                 <th class="py-2 px-3 text-right">Actual Cost ($)</th>
-                <th class="py-2 px-3 text-right">Saved ($)</th>
+                <th class="py-2 px-3 text-right">Saved by Plugin ($)</th>
               </tr>
             </thead>
             <tbody id="table-repos"></tbody>
@@ -233,9 +232,10 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
                 <th class="py-2 px-3">Project / Repo</th>
                 <th class="py-2 px-3 text-right">Turns</th>
                 <th class="py-2 px-3 text-right">Total Tokens</th>
-                <th class="py-2 px-3 text-right">Hit %</th>
-                <th class="py-2 px-3 text-right">Cost ($)</th>
-                <th class="py-2 px-3 text-right">Saved ($)</th>
+                <th class="py-2 px-3 text-center">Plugin Used</th>
+                <th class="py-2 px-3 text-right">Plugin Tokens Saved</th>
+                <th class="py-2 px-3 text-right">Actual Cost ($)</th>
+                <th class="py-2 px-3 text-right">Saved by Plugin ($)</th>
               </tr>
             </thead>
             <tbody id="table-convs"></tbody>
@@ -400,6 +400,14 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       });
     }
 
+    function pluginBadge(calls) {
+      const n = Number(calls || 0);
+      if (n > 0) {
+        return `<span class="px-2 py-0.5 text-xs rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">Yes (${n})</span>`;
+      }
+      return `<span class="px-2 py-0.5 text-xs rounded bg-slate-800 cg-muted font-mono">No</span>`;
+    }
+
     function renderKPIs() {
       const gt = STATE.token_report.grand_totals || {};
       const featCount = gt.total_features || (STATE.token_report.by_feature || []).length;
@@ -411,11 +419,11 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       });
 
       const cards = [
-        { label: 'Est. Total Spend', val: fmtUsd(gt.estimated_cost_usd), sub: `Uncached: ${fmtUsd(gt.uncached_cost_usd)}` },
-        { label: 'Saved by Prompt Cache', val: fmtUsd(gt.estimated_cache_savings_usd), sub: `${gt.cache_hit_rate_pct || 0}% cache hit rate` },
-        { label: 'Features & Conversations', val: `${fmtNum(featCount)} features`, sub: `Across ${fmtNum(gt.total_conversations)} conversations` },
+        { label: 'Est. Total LLM Spend', val: fmtUsd(gt.estimated_cost_usd), sub: `${fmtNum(gt.total_conversations)} conversations (${featCount} features)` },
+        { label: 'Saved by Context-Graph', val: fmtUsd(gt.estimated_cache_savings_usd), sub: `${fmtNum(gt.plugin_tokens_saved)} tokens (${fmtNum(gt.plugin_calls)} plugin calls)` },
         { label: 'Total Tokens Tracked', val: fmtNum(gt.total_tokens), sub: `${fmtNum(gt.input_tokens)} in / ${fmtNum(gt.output_tokens)} out` },
-        { label: 'Indexed Graph & Pins', val: `${totalFiles} files`, sub: `${totalRels} edges • ${totalOverrides} pins` },
+        { label: 'Indexed Graph & Edges', val: `${totalFiles} files`, sub: `${totalRels} implementation edges` },
+        { label: 'Ground-Truth Pins', val: `${totalOverrides}`, sub: `Anti-hallucination overrides` },
       ];
 
       document.getElementById('kpi-grid').innerHTML = cards.map(c => `
@@ -440,38 +448,45 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       );
       const featEl = document.getElementById('table-features');
       if (featEl) {
-        featEl.innerHTML = features.map(f => `
-          <tr class="border-b border-[var(--border,#334155)]/50">
-            <td class="py-2.5 px-3 font-semibold max-w-xs truncate" title="${(f.feature_name || '').replace(/"/g, '&quot;')}">${f.feature_name}</td>
-            <td class="py-2.5 px-3 font-mono text-xs text-amber-300">${f.ticket_id || '-'}</td>
-            <td class="py-2.5 px-3">
-              <div class="text-xs font-medium">${f.repo_name}</div>
-              <div class="text-xs font-mono text-sky-400 truncate max-w-xs">${f.git_branch || '-'}</div>
-            </td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(f.conversation_count)}</td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(f.total_turns)}</td>
-            <td class="py-2.5 px-3 text-right font-bold">${fmtNum(f.total_tokens)}</td>
-            <td class="py-2.5 px-3 text-right text-emerald-400">${f.cache_hit_rate_pct}%</td>
-            <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(f.estimated_cost_usd)}</td>
-            <td class="py-2.5 px-3 text-right font-medium text-emerald-400">${fmtUsd(f.estimated_cache_savings_usd)}</td>
-          </tr>
-        `).join('');
+        featEl.innerHTML = features.map(f => {
+          const used = Number(f.plugin_calls || 0) > 0;
+          return `
+            <tr class="border-b border-[var(--border,#334155)]/50">
+              <td class="py-2.5 px-3 font-semibold max-w-xs truncate" title="${(f.feature_name || '').replace(/"/g, '&quot;')}">${f.feature_name}</td>
+              <td class="py-2.5 px-3 font-mono text-xs text-amber-300">${f.ticket_id || '-'}</td>
+              <td class="py-2.5 px-3">
+                <div class="text-xs font-medium">${f.repo_name}</div>
+                <div class="text-xs font-mono text-sky-400 truncate max-w-xs">${f.git_branch || '-'}</div>
+              </td>
+              <td class="py-2.5 px-3 text-right">${fmtNum(f.conversation_count)}</td>
+              <td class="py-2.5 px-3 text-right">${fmtNum(f.total_turns)}</td>
+              <td class="py-2.5 px-3 text-right font-bold">${fmtNum(f.total_tokens)}</td>
+              <td class="py-2.5 px-3 text-center">${pluginBadge(f.plugin_calls)}</td>
+              <td class="py-2.5 px-3 text-right ${used ? 'text-emerald-400 font-medium' : 'cg-muted'}">${used ? fmtNum(f.plugin_tokens_saved) : '0'}</td>
+              <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(f.estimated_cost_usd)}</td>
+              <td class="py-2.5 px-3 text-right ${used ? 'font-bold text-emerald-400' : 'cg-muted'}">${used ? fmtUsd(f.estimated_cache_savings_usd) : '$0.00'}</td>
+            </tr>
+          `;
+        }).join('');
       }
 
-      document.getElementById('table-clients').innerHTML = (tr.by_client || []).map(c => `
-        <tr class="border-b border-[var(--border,#334155)]/50">
-          <td class="py-2.5 px-3 font-semibold text-indigo-400">${c.client_source}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(c.conversation_count)}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(c.total_turns)}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(c.input_tokens)}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(c.cache_read_tokens)}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(c.output_tokens)}</td>
-          <td class="py-2.5 px-3 text-right font-bold">${fmtNum(c.total_tokens)}</td>
-          <td class="py-2.5 px-3 text-right text-emerald-400 font-medium">${c.cache_hit_rate_pct}%</td>
-          <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(c.estimated_cost_usd)}</td>
-          <td class="py-2.5 px-3 text-right font-medium text-emerald-400">${fmtUsd(c.estimated_cache_savings_usd)}</td>
-        </tr>
-      `).join('');
+      document.getElementById('table-clients').innerHTML = (tr.by_client || []).map(c => {
+        const used = Number(c.plugin_calls || 0) > 0;
+        return `
+          <tr class="border-b border-[var(--border,#334155)]/50">
+            <td class="py-2.5 px-3 font-semibold text-indigo-400">${c.client_source}</td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(c.conversation_count)}</td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(c.total_turns)}</td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(c.input_tokens)}</td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(c.cache_read_tokens)}</td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(c.output_tokens)}</td>
+            <td class="py-2.5 px-3 text-right font-bold">${fmtNum(c.total_tokens)}</td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(c.plugin_calls)}</td>
+            <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(c.estimated_cost_usd)}</td>
+            <td class="py-2.5 px-3 text-right ${used ? 'font-bold text-emerald-400' : 'cg-muted'}">${used ? fmtUsd(c.estimated_cache_savings_usd) : '$0.00'}</td>
+          </tr>
+        `;
+      }).join('');
 
       const rFilter = (document.getElementById('repo-search')?.value || '').toLowerCase();
       const repos = (tr.by_project_repo || []).filter(r =>
@@ -480,24 +495,25 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         (r.project_root || '').toLowerCase().includes(rFilter) ||
         (r.git_branch || '').toLowerCase().includes(rFilter)
       );
-      document.getElementById('table-repos').innerHTML = repos.map(r => `
-        <tr class="border-b border-[var(--border,#334155)]/50">
-          <td class="py-2.5 px-3">
-            <div class="font-semibold">${r.repo_name}</div>
-            <div class="text-xs cg-muted truncate max-w-xs">${r.project_root}</div>
-          </td>
-          <td class="py-2.5 px-3 font-mono text-xs text-sky-400">${r.git_branch || '-'}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(r.conversation_count)}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(r.total_turns)}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(r.input_tokens)}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(r.cache_read_tokens)}</td>
-          <td class="py-2.5 px-3 text-right">${fmtNum(r.output_tokens)}</td>
-          <td class="py-2.5 px-3 text-right font-bold">${fmtNum(r.total_tokens)}</td>
-          <td class="py-2.5 px-3 text-right text-emerald-400 font-medium">${r.cache_hit_rate_pct}%</td>
-          <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(r.estimated_cost_usd)}</td>
-          <td class="py-2.5 px-3 text-right font-medium text-emerald-400">${fmtUsd(r.estimated_cache_savings_usd)}</td>
-        </tr>
-      `).join('');
+      document.getElementById('table-repos').innerHTML = repos.map(r => {
+        const used = Number(r.plugin_calls || 0) > 0;
+        return `
+          <tr class="border-b border-[var(--border,#334155)]/50">
+            <td class="py-2.5 px-3">
+              <div class="font-semibold">${r.repo_name}</div>
+              <div class="text-xs cg-muted truncate max-w-xs">${r.project_root}</div>
+            </td>
+            <td class="py-2.5 px-3 font-mono text-xs text-sky-400">${r.git_branch || '-'}</td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(r.conversation_count)}</td>
+            <td class="py-2.5 px-3 text-right">${fmtNum(r.total_turns)}</td>
+            <td class="py-2.5 px-3 text-right font-bold">${fmtNum(r.total_tokens)}</td>
+            <td class="py-2.5 px-3 text-center">${pluginBadge(r.plugin_calls)}</td>
+            <td class="py-2.5 px-3 text-right ${used ? 'text-emerald-400 font-medium' : 'cg-muted'}">${used ? fmtNum(r.plugin_tokens_saved) : '0'}</td>
+            <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(r.estimated_cost_usd)}</td>
+            <td class="py-2.5 px-3 text-right ${used ? 'font-bold text-emerald-400' : 'cg-muted'}">${used ? fmtUsd(r.estimated_cache_savings_usd) : '$0.00'}</td>
+          </tr>
+        `;
+      }).join('');
 
       const cFilter = (document.getElementById('conv-search')?.value || '').toLowerCase();
       const convs = (tr.by_conversation || []).filter(c =>
@@ -507,22 +523,26 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         (c.repo_name || '').toLowerCase().includes(cFilter) ||
         (c.conversation_id || '').toLowerCase().includes(cFilter)
       );
-      document.getElementById('table-convs').innerHTML = convs.map(c => `
-        <tr class="border-b border-[var(--border,#334155)]/50">
-          <td class="py-2 px-3 text-xs font-mono text-indigo-400">${c.client_source}</td>
-          <td class="py-2 px-3 text-xs font-mono cg-muted">${c.conversation_id.slice(0, 8)}...</td>
-          <td class="py-2 px-3 max-w-xs truncate" title="${(c.title || '').replace(/"/g, '&quot;')}">
-            <div class="font-medium truncate">${c.feature_name || c.title}</div>
-            <div class="text-xs cg-muted truncate">${c.title}</div>
-          </td>
-          <td class="py-2 px-3 font-medium">${c.repo_name}</td>
-          <td class="py-2 px-3 text-right">${fmtNum(c.turn_count)}</td>
-          <td class="py-2 px-3 text-right font-bold">${fmtNum(c.total_tokens)}</td>
-          <td class="py-2 px-3 text-right text-emerald-400">${c.cache_hit_rate_pct}%</td>
-          <td class="py-2 px-3 text-right font-bold text-amber-300">${fmtUsd(c.estimated_cost_usd)}</td>
-          <td class="py-2 px-3 text-right font-medium text-emerald-400">${fmtUsd(c.estimated_cache_savings_usd)}</td>
-        </tr>
-      `).join('');
+      document.getElementById('table-convs').innerHTML = convs.map(c => {
+        const used = Number(c.plugin_calls || 0) > 0;
+        return `
+          <tr class="border-b border-[var(--border,#334155)]/50">
+            <td class="py-2 px-3 text-xs font-mono text-indigo-400">${c.client_source}</td>
+            <td class="py-2 px-3 text-xs font-mono cg-muted">${c.conversation_id.slice(0, 8)}...</td>
+            <td class="py-2 px-3 max-w-xs truncate" title="${(c.title || '').replace(/"/g, '&quot;')}">
+              <div class="font-medium truncate">${c.feature_name || c.title}</div>
+              <div class="text-xs cg-muted truncate">${c.title}</div>
+            </td>
+            <td class="py-2 px-3 font-medium">${c.repo_name}</td>
+            <td class="py-2 px-3 text-right">${fmtNum(c.turn_count)}</td>
+            <td class="py-2.5 px-3 text-right font-bold">${fmtNum(c.total_tokens)}</td>
+            <td class="py-2 px-3 text-center">${pluginBadge(c.plugin_calls)}</td>
+            <td class="py-2 px-3 text-right ${used ? 'text-emerald-400 font-medium' : 'cg-muted'}">${used ? fmtNum(c.plugin_tokens_saved) : '0'}</td>
+            <td class="py-2 px-3 text-right font-bold text-amber-300">${fmtUsd(c.estimated_cost_usd)}</td>
+            <td class="py-2 px-3 text-right ${used ? 'font-bold text-emerald-400' : 'cg-muted'}">${used ? fmtUsd(c.estimated_cache_savings_usd) : '$0.00'}</td>
+          </tr>
+        `;
+      }).join('');
     }
 
     const G3D_COLORS = {

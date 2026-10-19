@@ -331,6 +331,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
             cache_read_tokens INTEGER DEFAULT 0,
             output_tokens INTEGER DEFAULT 0,
             total_tokens INTEGER DEFAULT 0,
+            plugin_calls INTEGER DEFAULT 0,
+            plugin_tokens_saved INTEGER DEFAULT 0,
             transcript_path TEXT DEFAULT '',
             transcript_mtime REAL DEFAULT 0,
             started_at TEXT DEFAULT '',
@@ -354,6 +356,14 @@ def init_schema(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE conversation_usage ADD COLUMN client_source TEXT DEFAULT 'antigravity'"
         )
+    if "plugin_calls" not in cols:
+        conn.execute(
+            "ALTER TABLE conversation_usage ADD COLUMN plugin_calls INTEGER DEFAULT 0"
+        )
+        conn.execute(
+            "ALTER TABLE conversation_usage ADD COLUMN plugin_tokens_saved INTEGER DEFAULT 0"
+        )
+        conn.execute("UPDATE conversation_usage SET transcript_mtime = 0")
     conn.commit()
 
 
@@ -1441,6 +1451,8 @@ def _upsert_conversation_usage(
     input_tokens: int,
     cache_read_tokens: int,
     output_tokens: int,
+    plugin_calls: int,
+    plugin_tokens_saved: int,
     transcript_path: str,
     st_mtime: float,
     started_at: str,
@@ -1458,8 +1470,9 @@ def _upsert_conversation_usage(
             conversation_id, client_source, workspace_path, repo_root, repo_name,
             git_remote, git_branch, model_name, title,
             turn_count, input_tokens, cache_read_tokens, output_tokens,
-            total_tokens, transcript_path, transcript_mtime, started_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            total_tokens, plugin_calls, plugin_tokens_saved,
+            transcript_path, transcript_mtime, started_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(conversation_id) DO UPDATE SET
             client_source = excluded.client_source,
             workspace_path = CASE WHEN excluded.workspace_path != 'global' THEN excluded.workspace_path ELSE conversation_usage.workspace_path END,
@@ -1474,6 +1487,8 @@ def _upsert_conversation_usage(
             cache_read_tokens = excluded.cache_read_tokens,
             output_tokens = excluded.output_tokens,
             total_tokens = excluded.total_tokens,
+            plugin_calls = excluded.plugin_calls,
+            plugin_tokens_saved = excluded.plugin_tokens_saved,
             transcript_path = excluded.transcript_path,
             transcript_mtime = excluded.transcript_mtime,
             started_at = CASE WHEN conversation_usage.started_at != '' THEN conversation_usage.started_at ELSE excluded.started_at END,
@@ -1494,6 +1509,8 @@ def _upsert_conversation_usage(
             cache_read_tokens,
             output_tokens,
             total_tokens,
+            plugin_calls,
+            plugin_tokens_saved,
             transcript_path,
             st_mtime,
             started_at or ts,
@@ -1510,6 +1527,8 @@ def _upsert_conversation_usage(
         "cache_read_tokens": cache_read_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
+        "plugin_calls": plugin_calls,
+        "plugin_tokens_saved": plugin_tokens_saved,
     }
 
 
@@ -1578,6 +1597,7 @@ def sync_transcript_usage(
         cache_read_tokens = 0
         output_tokens = 0
         turn_count = 0
+        plugin_calls = 0
         title = ""
         started_at = ""
         last_step_at = ""
@@ -1602,8 +1622,11 @@ def sync_transcript_usage(
                         last_step_at = created_at
 
                     content = step.get("content", "")
-                    if stype == "USER_INPUT" and not title and content:
-                        title = _extract_user_request_title(content)
+                    if stype == "USER_INPUT" and content:
+                        if not title:
+                            title = _extract_user_request_title(content)
+                        if "[Context Graph & Query Cache]" in content or "/context-graph" in content:
+                            plugin_calls += 1
 
                     if not model_name and "USER_SETTINGS_CHANGE" in content:
                         m_mod = re.search(r"Model Selection` from .*? to ([^\.\n]+)", content)
@@ -1621,7 +1644,18 @@ def sync_transcript_usage(
                             turn_count += 1
 
                         for tc in step.get("tool_calls") or []:
+                            tname = str(tc.get("name") or "")
                             targs = tc.get("args") or {}
+                            srv_name = _unquote_arg(str(targs.get("ServerName") or ""))
+                            mcp_tool = _unquote_arg(str(targs.get("ToolName") or ""))
+                            if (
+                                "context-graph" in srv_name
+                                or "context-graph" in tname
+                                or mcp_tool.startswith("cache_")
+                                or tname.startswith("cache_")
+                            ):
+                                plugin_calls += 1
+
                             for key in ("TargetFile", "AbsolutePath", "SearchPath", "Cwd", "workspace_path"):
                                 val = _unquote_arg(targs.get(key, ""))
                                 if (
@@ -1660,6 +1694,13 @@ def sync_transcript_usage(
                     if role == "assistant":
                         if msg.get("model") and not model_name:
                             model_name = str(msg["model"])
+                        msg_content = msg.get("content")
+                        if isinstance(msg_content, list):
+                            for part in msg_content:
+                                if isinstance(part, dict) and part.get("type") == "tool_use":
+                                    pname = str(part.get("name") or "")
+                                    if "context-graph" in pname or pname.startswith("cache_"):
+                                        plugin_calls += 1
                         usage = msg.get("usage") or {}
                         in_tok = int(usage.get("input_tokens") or 0) + int(
                             usage.get("cache_creation_input_tokens") or 0
@@ -1712,6 +1753,18 @@ def sync_transcript_usage(
                 first_p = inferred_paths[-1]
                 ws = first_p if os.path.isdir(first_p) else os.path.dirname(first_p)
 
+        # Only compute plugin_tokens_saved when the context-graph plugin was actually invoked
+        plugin_tokens_saved = 0
+        if plugin_calls > 0:
+            ws_bytes_row = conn.execute(
+                "SELECT COALESCE(SUM(size_bytes), 0) AS total_bytes FROM files WHERE workspace_path = ?",
+                (ws,),
+            ).fetchone()
+            ws_bytes = int(ws_bytes_row["total_bytes"] or 0) if ws_bytes_row else 0
+            # 1 token ~= 4 bytes of source code avoided per plugin lookup across turns
+            avg_avoided_per_call = max(3500, min(25000, int(ws_bytes / 4)))
+            plugin_tokens_saved = plugin_calls * avg_avoided_per_call * max(1, min(turn_count, 8))
+
         final_model = model_name or (existing["model_name"] if existing else "auto") or "auto"
         res = _upsert_conversation_usage(
             conn=conn,
@@ -1724,6 +1777,8 @@ def sync_transcript_usage(
             input_tokens=input_tokens,
             cache_read_tokens=cache_read_tokens,
             output_tokens=output_tokens,
+            plugin_calls=plugin_calls,
+            plugin_tokens_saved=plugin_tokens_saved,
             transcript_path=transcript_path,
             st_mtime=st_mtime,
             started_at=started_at,
@@ -1786,9 +1841,12 @@ def estimate_token_cost(
     input_tokens: int,
     cache_read_tokens: int,
     output_tokens: int,
+    plugin_tokens_saved: int = 0,
 ) -> Dict[str, float]:
     """
-    Estimates LLM API cost in USD and prompt-cache savings based on model family rates (per 1M tokens).
+    Estimates LLM API cost in USD and context-graph plugin savings based on model family rates (per 1M tokens).
+    Note: `estimated_cache_savings_usd` (Plugin Savings USD) is strictly $0.00 when `plugin_tokens_saved == 0`
+    (i.e. when the conversation did not use the `context-graph` plugin).
     """
     m = (model_name or "auto").lower()
     if "flash" in m:
@@ -1807,16 +1865,18 @@ def estimate_token_cost(
     cache_cost = (max(0, cache_read_tokens) / 1_000_000.0) * cache_rate
     out_cost = (max(0, output_tokens) / 1_000_000.0) * out_rate
     actual_cost = in_cost + cache_cost + out_cost
-    uncached_cost = ((max(0, input_tokens) + max(0, cache_read_tokens)) / 1_000_000.0) * in_rate + out_cost
-    cache_savings = max(0.0, uncached_cost - actual_cost)
+
+    # Plugin savings: strictly 0 when plugin_tokens_saved == 0
+    plugin_saved_cost = (max(0, plugin_tokens_saved) / 1_000_000.0) * in_rate
+    without_plugin_cost = actual_cost + plugin_saved_cost
 
     return {
         "input_cost_usd": round(in_cost, 4),
         "cache_read_cost_usd": round(cache_cost, 4),
         "output_cost_usd": round(out_cost, 4),
         "estimated_cost_usd": round(actual_cost, 2),
-        "uncached_cost_usd": round(uncached_cost, 2),
-        "estimated_cache_savings_usd": round(cache_savings, 2),
+        "uncached_cost_usd": round(without_plugin_cost, 2),
+        "estimated_cache_savings_usd": round(plugin_saved_cost, 2),
     }
 
 
@@ -1830,7 +1890,6 @@ def derive_feature_info(repo_name: str, git_branch: str, title: str) -> Dict[str
     clean_title = redact_secrets((title or "").strip())
 
     if branch.lower() not in DEFAULT_GIT_BRANCHES:
-        # Check for "<ticket_num>-<feature-slug>" e.g. "1643-foundation-batch-associate-and-quit-logic"
         m = re.match(r"^(\d+)[-_](.+)$", branch)
         if m:
             ticket = f"#{m.group(1)}"
@@ -1841,7 +1900,6 @@ def derive_feature_info(repo_name: str, git_branch: str, title: str) -> Dict[str
                 "ticket_id": ticket,
                 "feature_source": "git_branch",
             }
-        # Check for "<author_or_type>/<feature-slug>" e.g. "shibil/paymentgateway-changes" or "feat/login"
         if "/" in branch:
             prefix, slug = branch.split("/", 1)
             slug_clean = slug.strip() or branch
@@ -1866,7 +1924,6 @@ def derive_feature_info(repo_name: str, git_branch: str, title: str) -> Dict[str
             "feature_source": "git_branch",
         }
 
-    # On default branch (main/master/empty): group by prompt task or repo main
     if clean_title and clean_title != "(Untitled conversation)":
         short_task = re.sub(r"\s+", " ", clean_title)[:60].strip()
         return {
@@ -1891,8 +1948,8 @@ def get_token_usage_report(
     limit: int = 50,
 ) -> Dict[str, Any]:
     """
-    Returns token usage and estimated USD cost per feature, per conversation, per LLM client,
-    and aggregated by project / Git repository.
+    Returns token usage, actual LLM cost, and context-graph plugin savings per feature,
+    per conversation, per LLM client, and aggregated by project / Git repository.
     """
     conn = get_connection()
     try:
@@ -1942,6 +1999,8 @@ def get_token_usage_report(
                 SUM(cache_read_tokens) AS cache_read_tokens,
                 SUM(output_tokens) AS output_tokens,
                 SUM(total_tokens) AS total_tokens,
+                SUM(plugin_calls) AS plugin_calls,
+                SUM(plugin_tokens_saved) AS plugin_tokens_saved,
                 MAX(updated_at) AS last_active_at
             FROM conversation_usage
             {where_sql}
@@ -1960,7 +2019,9 @@ def get_token_usage_report(
                 SUM(input_tokens) AS input_tokens,
                 SUM(cache_read_tokens) AS cache_read_tokens,
                 SUM(output_tokens) AS output_tokens,
-                SUM(total_tokens) AS total_tokens
+                SUM(total_tokens) AS total_tokens,
+                SUM(plugin_calls) AS plugin_calls,
+                SUM(plugin_tokens_saved) AS plugin_tokens_saved
             FROM conversation_usage
             {where_sql}
             GROUP BY client_source
@@ -1969,7 +2030,6 @@ def get_token_usage_report(
             tuple(params),
         ).fetchall()
 
-        # Aggregate accurate per-conversation costs and group by feature, repo, and client
         feature_map: Dict[str, Dict[str, Any]] = {}
         repo_cost_map: Dict[str, Dict[str, float]] = {}
         client_cost_map: Dict[str, Dict[str, float]] = {}
@@ -1979,6 +2039,8 @@ def get_token_usage_report(
         grand_in_cost = 0.0
         grand_cache_cost = 0.0
         grand_out_cost = 0.0
+        grand_plugin_calls = 0
+        grand_plugin_tokens_saved = 0
 
         for c in all_conv_rows:
             in_t = int(c["input_tokens"] or 0)
@@ -1986,6 +2048,8 @@ def get_token_usage_report(
             out_t = int(c["output_tokens"] or 0)
             tot_t = int(c["total_tokens"] or 0)
             turns = int(c["turn_count"] or 0)
+            p_calls = int(c["plugin_calls"] or 0) if "plugin_calls" in c.keys() else 0
+            p_saved_tok = int(c["plugin_tokens_saved"] or 0) if "plugin_tokens_saved" in c.keys() else 0
             model = c["model_name"] or "auto"
             c_src = c["client_source"] or "antigravity"
             proj_root = c["repo_root"] or c["workspace_path"]
@@ -1994,13 +2058,15 @@ def get_token_usage_report(
             c_title = redact_secrets(c["title"] or "(Untitled conversation)")
             updated = c["updated_at"] or ""
 
-            cost = estimate_token_cost(model, in_t, cr_t, out_t)
+            cost = estimate_token_cost(model, in_t, cr_t, out_t, plugin_tokens_saved=p_saved_tok)
             grand_in_cost += cost["input_cost_usd"]
             grand_cache_cost += cost["cache_read_cost_usd"]
             grand_out_cost += cost["output_cost_usd"]
             grand_cost += cost["input_cost_usd"] + cost["cache_read_cost_usd"] + cost["output_cost_usd"]
             grand_uncached_cost += cost["uncached_cost_usd"]
             grand_savings += cost["estimated_cache_savings_usd"]
+            grand_plugin_calls += p_calls
+            grand_plugin_tokens_saved += p_saved_tok
 
             rc = repo_cost_map.setdefault(proj_root, {"cost": 0.0, "uncached": 0.0, "savings": 0.0})
             rc["cost"] += cost["input_cost_usd"] + cost["cache_read_cost_usd"] + cost["output_cost_usd"]
@@ -2028,6 +2094,8 @@ def get_token_usage_report(
                     "cache_read_tokens": 0,
                     "output_tokens": 0,
                     "total_tokens": 0,
+                    "plugin_calls": 0,
+                    "plugin_tokens_saved": 0,
                     "input_cost_usd": 0.0,
                     "cache_read_cost_usd": 0.0,
                     "output_cost_usd": 0.0,
@@ -2049,6 +2117,8 @@ def get_token_usage_report(
             f_entry["cache_read_tokens"] += cr_t
             f_entry["output_tokens"] += out_t
             f_entry["total_tokens"] += tot_t
+            f_entry["plugin_calls"] += p_calls
+            f_entry["plugin_tokens_saved"] += p_saved_tok
             f_entry["input_cost_usd"] += cost["input_cost_usd"]
             f_entry["cache_read_cost_usd"] += cost["cache_read_cost_usd"]
             f_entry["output_cost_usd"] += cost["output_cost_usd"]
@@ -2066,6 +2136,7 @@ def get_token_usage_report(
             f_entry["cache_hit_rate_pct"] = (
                 round((f_entry["cache_read_tokens"] / p_tot) * 100, 1) if p_tot > 0 else 0.0
             )
+            f_entry["plugin_used"] = bool(f_entry["plugin_calls"] > 0)
             f_entry["input_cost_usd"] = round(f_entry["input_cost_usd"], 2)
             f_entry["cache_read_cost_usd"] = round(f_entry["cache_read_cost_usd"], 2)
             f_entry["output_cost_usd"] = round(f_entry["output_cost_usd"], 2)
@@ -2092,6 +2163,8 @@ def get_token_usage_report(
             out_t = int(r["output_tokens"] or 0)
             tot_t = int(r["total_tokens"] or 0)
             c_cnt = int(r["conversation_count"] or 0)
+            p_calls = int(r["plugin_calls"] or 0)
+            p_saved_tok = int(r["plugin_tokens_saved"] or 0)
 
             grand_input += in_t
             grand_cache += cr_t
@@ -2116,6 +2189,9 @@ def get_token_usage_report(
                     "output_tokens": out_t,
                     "total_tokens": tot_t,
                     "cache_hit_rate_pct": cache_hit_pct,
+                    "plugin_used": bool(p_calls > 0),
+                    "plugin_calls": p_calls,
+                    "plugin_tokens_saved": p_saved_tok,
                     "estimated_cost_usd": round(rc["cost"], 2),
                     "uncached_cost_usd": round(rc["uncached"], 2),
                     "estimated_cache_savings_usd": round(rc["savings"], 2),
@@ -2129,6 +2205,8 @@ def get_token_usage_report(
             cr_t = int(cl["cache_read_tokens"] or 0)
             out_t = int(cl["output_tokens"] or 0)
             tot_t = int(cl["total_tokens"] or 0)
+            p_calls = int(cl["plugin_calls"] or 0)
+            p_saved_tok = int(cl["plugin_tokens_saved"] or 0)
             prompt_total = in_t + cr_t
             cache_hit_pct = round((cr_t / prompt_total) * 100, 1) if prompt_total > 0 else 0.0
             c_src = cl["client_source"] or "antigravity"
@@ -2143,6 +2221,9 @@ def get_token_usage_report(
                     "output_tokens": out_t,
                     "total_tokens": tot_t,
                     "cache_hit_rate_pct": cache_hit_pct,
+                    "plugin_used": bool(p_calls > 0),
+                    "plugin_calls": p_calls,
+                    "plugin_tokens_saved": p_saved_tok,
                     "estimated_cost_usd": round(cc["cost"], 2),
                     "uncached_cost_usd": round(cc["uncached"], 2),
                     "estimated_cache_savings_usd": round(cc["savings"], 2),
@@ -2155,13 +2236,15 @@ def get_token_usage_report(
             cr_t = int(c["cache_read_tokens"] or 0)
             out_t = int(c["output_tokens"] or 0)
             tot_t = int(c["total_tokens"] or 0)
+            p_calls = int(c["plugin_calls"] or 0) if "plugin_calls" in c.keys() else 0
+            p_saved_tok = int(c["plugin_tokens_saved"] or 0) if "plugin_tokens_saved" in c.keys() else 0
             prompt_total = in_t + cr_t
             cache_hit_pct = round((cr_t / prompt_total) * 100, 1) if prompt_total > 0 else 0.0
             c_title = redact_secrets(c["title"] or "(Untitled conversation)")
             r_name = c["repo_name"] or "unscoped / global"
             g_branch = c["git_branch"] or ""
             model = c["model_name"] or "auto"
-            cost = estimate_token_cost(model, in_t, cr_t, out_t)
+            cost = estimate_token_cost(model, in_t, cr_t, out_t, plugin_tokens_saved=p_saved_tok)
             f_info = derive_feature_info(r_name, g_branch, c_title)
 
             conversations.append(
@@ -2182,6 +2265,9 @@ def get_token_usage_report(
                     "output_tokens": out_t,
                     "total_tokens": tot_t,
                     "cache_hit_rate_pct": cache_hit_pct,
+                    "plugin_used": bool(p_calls > 0),
+                    "plugin_calls": p_calls,
+                    "plugin_tokens_saved": p_saved_tok,
                     "estimated_cost_usd": cost["estimated_cost_usd"],
                     "uncached_cost_usd": cost["uncached_cost_usd"],
                     "estimated_cache_savings_usd": cost["estimated_cache_savings_usd"],
@@ -2203,6 +2289,8 @@ def get_token_usage_report(
                 "output_tokens": grand_output,
                 "total_tokens": grand_total,
                 "cache_hit_rate_pct": grand_cache_pct,
+                "plugin_calls": grand_plugin_calls,
+                "plugin_tokens_saved": grand_plugin_tokens_saved,
                 "input_cost_usd": round(grand_in_cost, 2),
                 "cache_read_cost_usd": round(grand_cache_cost, 2),
                 "output_cost_usd": round(grand_out_cost, 2),
