@@ -356,8 +356,9 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <script>
+    const vscodeApi = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
     const API_BASE = window.location.protocol.startsWith('http') ? '' : 'http://127.0.0.1:8765';
-    let STATE = {
+    let STATE = window.__INITIAL_CG_STATE__ || {
       token_report: {
         grand_totals: {
           total_conversations: 0,
@@ -379,6 +380,29 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       workspaces: [],
       overviews: {}
     };
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'stateUpdate' && msg.state) {
+        STATE = msg.state;
+        const badge = document.getElementById('mode-badge');
+        if (badge) {
+          badge.textContent = 'VS Code Extension Connected';
+          badge.className = 'text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium';
+        }
+        if (msg.toastMessage) {
+          const toast = document.getElementById('action-toast');
+          if (toast) {
+            toast.classList.remove('hidden');
+            toast.textContent = msg.toastMessage;
+          }
+        }
+        renderKPIs();
+        renderTokens();
+        initWorkspaces();
+      }
+    });
 
     function fmtNum(n) {
       return Number(n || 0).toLocaleString();
@@ -892,6 +916,10 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       const toast = document.getElementById('action-toast');
       toast.classList.remove('hidden');
       toast.textContent = `Running ${action} on ${ws}...`;
+      if (vscodeApi) {
+        vscodeApi.postMessage({ type: 'apiAction', action, workspace_path: ws });
+        return;
+      }
       try {
         const res = await fetch(`${API_BASE}/api/action`, {
           method: 'POST',
@@ -921,6 +949,20 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         alert('Please enter both Override Slug and Verified Ground-Truth Rule.');
         return;
       }
+      if (vscodeApi) {
+        vscodeApi.postMessage({
+          type: 'submitOverride',
+          workspace_path: ws,
+          override_key: key,
+          hallucination_or_mistake: mistake,
+          verified_truth: truth,
+          priority
+        });
+        document.getElementById('ov-key').value = '';
+        document.getElementById('ov-mistake').value = '';
+        document.getElementById('ov-truth').value = '';
+        return;
+      }
       try {
         await fetch(`${API_BASE}/api/action`, {
           method: 'POST',
@@ -946,6 +988,17 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
     async function reloadState() {
       const badge = document.getElementById('mode-badge');
+      if (vscodeApi) {
+        vscodeApi.postMessage({ type: 'reloadState' });
+        if (badge) {
+          badge.textContent = 'VS Code Extension Connected';
+          badge.className = 'text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium';
+        }
+        renderKPIs();
+        renderTokens();
+        initWorkspaces();
+        return;
+      }
       try {
         const res = await fetch(`${API_BASE}/api/state`);
         if (res.ok) {
@@ -957,7 +1010,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         }
       } catch (err) {
         if (badge) {
-          badge.textContent = 'Offline — Run: python3 scripts/ui_server.py';
+          badge.textContent = window.__INITIAL_CG_STATE__ ? 'Embedded Snapshot Active' : 'Offline — Run: python3 scripts/ui_server.py';
           badge.className = 'text-xs px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium';
         }
       }
@@ -983,7 +1036,9 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 def build_html(workspace_filter: str = "") -> str:
-    return DASHBOARD_HTML_TEMPLATE
+    state_json = json.dumps(collect_full_state(workspace_filter)).replace("</", "<\\/")
+    inject = f"  <script>window.__INITIAL_CG_STATE__ = {state_json};</script>\n  <script>\n    const vscodeApi"
+    return DASHBOARD_HTML_TEMPLATE.replace("  <script>\n    const vscodeApi", inject, 1)
 
 
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
@@ -1063,12 +1118,21 @@ def main() -> None:
         help="Export a self-contained HTML dashboard to this file path and exit.",
     )
     parser.add_argument(
+        "--dump-state",
+        action="store_true",
+        help="Print full JSON state to stdout and exit (used by VS Code extension).",
+    )
+    parser.add_argument(
         "--workspace",
         "-w",
         default="",
-        help="Optional workspace filter when exporting HTML.",
+        help="Optional workspace filter when exporting HTML or dumping state.",
     )
     args = parser.parse_args()
+
+    if args.dump_state:
+        print(json.dumps(collect_full_state(args.workspace)))
+        return
 
     if args.export_html:
         out_path = os.path.abspath(os.path.expanduser(args.export_html))

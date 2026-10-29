@@ -17,3 +17,7 @@ Thumbs.db
 .idea/
 *.swp
 *~
+
+# VS Code extension packaged artifacts & bundled backend copy
+vscode-extension/backend/
+*.vsix

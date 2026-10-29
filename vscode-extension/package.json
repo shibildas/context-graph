@@ -1,0 +1,200 @@
+{
+  "name": "context-graph-vscode",
+  "displayName": "Context Graph & Query Cache",
+  "description": "Persistent SQLite file/symbol knowledge graph, anti-hallucination ground-truth overrides, 3D model explorer, and Multi-LLM Cost-per-Feature analytics for VS Code, Cursor, Windsurf & Antigravity.",
+  "version": "1.3.0",
+  "publisher": "shibildas",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shibildas/context-graph.git"
+  },
+  "homepage": "https://github.com/shibildas/context-graph#readme",
+  "bugs": {
+    "url": "https://github.com/shibildas/context-graph/issues"
+  },
+  "scripts": {
+    "vscode:prepublish": "python3 install_vscode_ext.py"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "mcp",
+    "context-graph",
+    "anti-hallucination",
+    "token-usage",
+    "claude-code",
+    "antigravity",
+    "cursor",
+    "codex"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "context-graph-sidebar",
+          "title": "Context Graph & Query Cache",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "context-graph-sidebar": [
+        {
+          "id": "contextGraphFeatures",
+          "name": "Cost per Feature & Token Spend"
+        },
+        {
+          "id": "contextGraphOverrides",
+          "name": "Ground-Truth Overrides"
+        },
+        {
+          "id": "contextGraphFiles",
+          "name": "Tracked Files & Symbol Graph"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "contextGraph.openDashboard",
+        "title": "Context Graph: Open 3D Control Center & Token Analytics",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "contextGraph.indexWorkspace",
+        "title": "Context Graph: Auto-Index Workspace (Zero LLM Tokens)",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "contextGraph.verifyHallucinations",
+        "title": "Context Graph: Verify & Auto-Fix Hallucinations",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "contextGraph.addOverride",
+        "title": "Context Graph: Pin Ground-Truth Override (Fix Hallucination)",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "contextGraph.exportOverrides",
+        "title": "Context Graph: Export Overrides to .context-graph/overrides.json",
+        "icon": "$(export)"
+      },
+      {
+        "command": "contextGraph.importOverrides",
+        "title": "Context Graph: Import Overrides from .context-graph/overrides.json",
+        "icon": "$(import)"
+      },
+      {
+        "command": "contextGraph.refreshStale",
+        "title": "Context Graph: Refresh Stale Files",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "contextGraph.installMcpConfig",
+        "title": "Context Graph: Configure MCP Server in Workspace (.mcp.json)",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "contextGraph.refreshTrees",
+        "title": "Context Graph: Refresh Sidebar Views",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "contextGraph.openDashboard",
+          "when": "view == contextGraphFeatures",
+          "group": "navigation@1"
+        },
+        {
+          "command": "contextGraph.refreshTrees",
+          "when": "view == contextGraphFeatures || view == contextGraphOverrides || view == contextGraphFiles",
+          "group": "navigation@2"
+        },
+        {
+          "command": "contextGraph.addOverride",
+          "when": "view == contextGraphOverrides",
+          "group": "navigation@1"
+        },
+        {
+          "command": "contextGraph.exportOverrides",
+          "when": "view == contextGraphOverrides",
+          "group": "inline@1"
+        },
+        {
+          "command": "contextGraph.indexWorkspace",
+          "when": "view == contextGraphFiles",
+          "group": "navigation@1"
+        },
+        {
+          "command": "contextGraph.verifyHallucinations",
+          "when": "view == contextGraphFiles",
+          "group": "inline@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "contextGraph.openDashboard"
+        },
+        {
+          "command": "contextGraph.indexWorkspace"
+        },
+        {
+          "command": "contextGraph.verifyHallucinations"
+        },
+        {
+          "command": "contextGraph.addOverride"
+        },
+        {
+          "command": "contextGraph.exportOverrides"
+        },
+        {
+          "command": "contextGraph.importOverrides"
+        },
+        {
+          "command": "contextGraph.refreshStale"
+        },
+        {
+          "command": "contextGraph.installMcpConfig"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Context Graph & Query Cache",
+      "properties": {
+        "contextGraph.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Path to the Python 3 executable used to run the Context Graph SQLite engine."
+        },
+        "contextGraph.autoIndexOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically re-index a file's AST symbols and SHA-256 signature in the Context Graph whenever it is saved."
+        },
+        "contextGraph.autoImportOverridesOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically import team-shared `.context-graph/overrides.json` ground-truth rules when opening a workspace."
+        },
+        "contextGraph.showStatusBarCost": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show live Multi-LLM token spend and plugin savings in the VS Code status bar."
+        }
+      }
+    }
+  }
+}

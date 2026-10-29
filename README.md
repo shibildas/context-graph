@@ -82,6 +82,13 @@ sh ./install.sh --all
   git clone https://github.com/shibildas/context-graph.git .agents/plugins/context-graph
   ```
 
+### 3. VS Code / Cursor / Windsurf / Antigravity IDE Extension (`vscode-extension/`)
+Install the native IDE extension (Activity Bar sidebar trees, Status Bar live spend/savings badge, 3D Control Center Webview, and auto-index on file save) with a single command:
+```bash
+python3 vscode-extension/install_vscode_ext.py
+```
+Then run **`Developer: Reload Window`** in your IDE (`Cmd+Shift+P` / `Ctrl+Shift+P`).
+
 ---
 
 ## MCP Tools Reference (`context-graph-mcp`)

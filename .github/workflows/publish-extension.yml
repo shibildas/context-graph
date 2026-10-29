@@ -1,0 +1,33 @@
+name: Publish VS Code Extension (Open VSX OIDC)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish-openvsx:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build VSIX package
+        run: python3 vscode-extension/install_vscode_ext.py
+
+      - name: Publish to Open VSX via OIDC Trusted Publisher
+        run: npx --yes ovsx@latest publish vscode-extension/*.vsix --trusted-publishing
