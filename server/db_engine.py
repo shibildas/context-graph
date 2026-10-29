@@ -239,7 +239,9 @@ def detect_git_repo_info(path_str: Optional[str]) -> Dict[str, str]:
     }
 
 
-def get_connection(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
+def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
+    if not db_path:
+        db_path = os.environ.get("CONTEXT_GRAPH_DB_PATH") or DEFAULT_DB_PATH
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=10.0)
     conn.row_factory = sqlite3.Row
@@ -1298,17 +1300,21 @@ def verify_and_fix_hallucinations(
                     }
                 )
 
+        issues_detected = {
+            "ghost_files_count": len(ghost_files),
+            "broken_relationships_count": len(broken_relationships),
+            "drifted_or_hallucinated_symbol_files_count": len(drifted_symbol_files),
+            "stale_queries_count": len(stale_queries),
+        }
+        total_issues = sum(issues_detected.values())
         conn.commit()
         return {
             "status": "ok",
             "workspace_path": ws,
             "auto_fix_applied": auto_fix,
-            "issues_detected": {
-                "ghost_files_count": len(ghost_files),
-                "broken_relationships_count": len(broken_relationships),
-                "drifted_or_hallucinated_symbol_files_count": len(drifted_symbol_files),
-                "stale_queries_count": len(stale_queries),
-            },
+            "issues_found": total_issues,
+            "auto_fixed": len(fixed_actions),
+            "issues_detected": issues_detected,
             "ghost_files": ghost_files,
             "broken_relationships": broken_relationships,
             "drifted_symbol_files": drifted_symbol_files,
@@ -2136,7 +2142,7 @@ def get_token_usage_report(
             f_entry["cache_hit_rate_pct"] = (
                 round((f_entry["cache_read_tokens"] / p_tot) * 100, 1) if p_tot > 0 else 0.0
             )
-            f_entry["plugin_used"] = bool(f_entry["plugin_calls"] > 0)
+            f_entry["plugin_used"] = f_entry["plugin_calls"] > 0
             f_entry["input_cost_usd"] = round(f_entry["input_cost_usd"], 2)
             f_entry["cache_read_cost_usd"] = round(f_entry["cache_read_cost_usd"], 2)
             f_entry["output_cost_usd"] = round(f_entry["output_cost_usd"], 2)
@@ -2189,7 +2195,7 @@ def get_token_usage_report(
                     "output_tokens": out_t,
                     "total_tokens": tot_t,
                     "cache_hit_rate_pct": cache_hit_pct,
-                    "plugin_used": bool(p_calls > 0),
+                    "plugin_used": p_calls > 0,
                     "plugin_calls": p_calls,
                     "plugin_tokens_saved": p_saved_tok,
                     "estimated_cost_usd": round(rc["cost"], 2),
@@ -2221,7 +2227,7 @@ def get_token_usage_report(
                     "output_tokens": out_t,
                     "total_tokens": tot_t,
                     "cache_hit_rate_pct": cache_hit_pct,
-                    "plugin_used": bool(p_calls > 0),
+                    "plugin_used": p_calls > 0,
                     "plugin_calls": p_calls,
                     "plugin_tokens_saved": p_saved_tok,
                     "estimated_cost_usd": round(cc["cost"], 2),
@@ -2265,7 +2271,7 @@ def get_token_usage_report(
                     "output_tokens": out_t,
                     "total_tokens": tot_t,
                     "cache_hit_rate_pct": cache_hit_pct,
-                    "plugin_used": bool(p_calls > 0),
+                    "plugin_used": p_calls > 0,
                     "plugin_calls": p_calls,
                     "plugin_tokens_saved": p_saved_tok,
                     "estimated_cost_usd": cost["estimated_cost_usd"],

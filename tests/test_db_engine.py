@@ -41,7 +41,7 @@ class TestContextGraphEngine(unittest.TestCase):
         scrubbed = db_engine.redact_secrets(raw)
         self.assertNotIn("SuperSecret123", scrubbed)
         self.assertNotIn("AVNS_SecretToken99", scrubbed)
-        self.assertIn("<REDACTED>", scrubbed)
+        self.assertIn("[REDACTED]", scrubbed)
 
     def test_estimate_token_cost_and_feature_derivation(self) -> None:
         # Without plugin usage (plugin_tokens_saved=0), plugin savings must be strictly $0.00
