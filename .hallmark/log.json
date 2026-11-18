@@ -1,0 +1,31 @@
+[
+ {
+  "mode": "redesign",
+  "depth": "full",
+  "scope": "app",
+  "shape": "app screen",
+  "theme": "vantage",
+  "axes": "dark/grotesk-sans/chromatic-lime",
+  "hero": "none (app screen)",
+  "nav": "top bar with inline tab strip",
+  "footer": "none (app screen)",
+  "imagery": "3D lidar point cloud of SQLite schema and AST nodes",
+  "photos": [],
+  "entry": "scripts/ui_server.py",
+  "fingerprint": "app-screen/vantage/object-steel/ledger-pointcloud",
+  "sections": [
+   "telemetry-strip",
+   "feature-ledger",
+   "client-ledger",
+   "repo-ledger",
+   "conversation-ledger",
+   "point-cloud-3d",
+   "ground-truth-pins",
+   "cached-queries"
+  ],
+  "signature": "feature cost ledger and 3D point-cloud schema graph",
+  "waived": [],
+  "prompt": "App console for engineers to inspect multi-LLM token spend and savings per feature, explore the 3D AST and SQLite schema graph, pin anti-hallucination ground-truth rules, and browse cached queries",
+  "date": "2026-11-18"
+ }
+]

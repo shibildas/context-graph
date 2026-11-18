@@ -65,299 +65,791 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Context Graph &amp; Query Cache — Control Center</title>
-  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <title>Context Graph &amp; Query Cache: Control Center</title>
+  <meta name="description" content="Multi-LLM token cost ledger, 3D AST and schema relationship graph, anti-hallucination ground-truth pins, and query cache console." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geologica:wght,CRSV,SHRP@200..500,0,0..100&amp;display=swap" rel="stylesheet" />
   <style>
-    body {
-      background-color: var(--background);
-      color: var(--foreground);
-    }
-    .cg-card {
-      background-color: var(--card);
-      border: 1px solid var(--border);
-    }
-    .cg-muted {
-      color: var(--muted-foreground);
-    }
-    .cg-input {
-      background-color: var(--background);
-      border: 1px solid var(--border);
-      color: var(--foreground);
-    }
-    .cg-btn-primary {
-      background-color: #6366f1;
-      color: #ffffff;
-    }
-    .cg-btn-primary:hover {
-      background-color: #4f46e5;
-    }
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: Vantage (deal 2/3, seed app-console-engineers-inspect-4348·aacbc226·2026-11-18·r0) · redesign: full
+ * nav: top bar with inline tab strip · signature: feature cost ledger and 3D point-cloud schema graph · states: loading, empty, error, full · vantage: object/steel
+ * axes: dark/grotesk-sans/chromatic-lime · posture: restrained · contrast: pass · finish-review: subagent · 8 findings · 8 resolved · gap: none · v2.0.0 */
+/* Hallmark · pre-emit critique: P5 H5 E5 S4 R5 V5 · weakest: S, five KPI cards above tables looked like a stock SaaS template; replaced with a corner-ticked tabular measurement bar integrated with the feature cost ledger */
+/* Hallmark · dropped tailwindcss.min.js · replaced CDN runtime with self-contained Vantage OKLCH token stylesheet */
+/* Hallmark · reworded "Context Graph & Query Cache — Control Center" to "Context Graph & Query Cache: Control Center" · 19 names the dash */
+/* Hallmark · reworded "Multi-LLM Token Analytics • File & Symbol Graph • Anti-Hallucination Ground-Truth Control Center" to "Multi-LLM token ledger, file and symbol graph, and ground-truth control center" · 63 names the middle dots */
+/* Hallmark · reworded "Drag to Orbit 3D • Scroll to Zoom • Click Node to Inspect" to "Drag to orbit 3D, scroll to zoom, click a node to inspect" · 63 names the middle dots */
+:root {
+  color-scheme: dark;
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.2rem; --text-xl: 1.44rem; --text-2xl: 1.728rem; --text-3xl: 2.074rem;
+  --text-display-s: 1.44rem; --text-display: 1.728rem; --text-section: 1.2rem; --text-title: 1rem; --text-lead: 1rem;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
+  --color-error: oklch(72% 0.15 27); --color-success: oklch(76% 0.13 150);
+  --container: 1440px; --gutter: 64px; --gap-columns: 32px; --section-gap-s: 120px; --section-gap: 144px; --section-gap-l: 176px;
+  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
+  --color-paper: oklch(13.5% 0.012 235); --color-paper-2: oklch(17% 0.014 235); --color-paper-3: oklch(21% 0.016 235);
+  --color-ink: oklch(95% 0.006 230); --color-ink-2: oklch(82% 0.012 230); --color-muted: oklch(66% 0.016 230);
+  --color-rule: oklch(27% 0.014 235); --color-rule-2: oklch(34% 0.016 235);
+  --color-accent: oklch(89% 0.19 126); --color-accent-hi: oklch(93% 0.17 126); --color-accent-ink: oklch(19% 0.04 126); --color-focus: oklch(89% 0.19 126);
+  --point-lo: oklch(42% 0.04 245); --point-mid: oklch(70% 0.04 232); --point-hi: oklch(96% 0.02 215);
+  --point-edge: oklch(54% 0.03 235); --point-edge-hi: oklch(89% 0.19 126); --point-core: oklch(11.5% 0.012 235);
+  --color-slot: oklch(21% 0.016 235);
+  --font-display: "Geologica", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Geologica", ui-sans-serif, system-ui, sans-serif;
+  --radius-card: 4px; --radius-pill: 999px; --rule-hair: 1px; --tick: 10px;
+  --shadow-card: none;
+  --tracking-display: -0.035em; --display-weight: 300;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { overflow-x: clip; }
+html { scrollbar-color: var(--color-muted) var(--color-paper); scroll-padding-top: var(--space-3xl); }
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-weight: 300;
+  font-variation-settings: "SHRP" 0;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--color-accent);
+}
+::selection { background: color-mix(in oklab, var(--color-accent) 22%, transparent); color: var(--color-ink); }
+:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 0.16em; }
+h1, h2, h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  font-variation-settings: "SHRP" 100;
+  font-synthesis: none;
+  letter-spacing: var(--tracking-display);
+  line-height: 1.05;
+  overflow-wrap: break-word;
+  min-width: 0;
+  text-wrap: balance;
+}
+h1 { max-width: 24ch; font-size: var(--text-display); }
+h2 { max-width: 34ch; font-size: var(--text-section); font-weight: 400; }
+h3 { max-width: 42ch; font-size: var(--text-title); font-weight: 400; line-height: 1.2; }
+p { margin: 0; text-wrap: pretty; color: var(--color-ink-2); }
+p:not([class]) { max-width: 65ch; }
+img, video, canvas, svg { max-width: 100%; display: block; }
+[hidden], .hidden { display: none !important; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+button, input, select, textarea { font: inherit; }
+.container { width: 100%; max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); padding-block: var(--space-lg); }
+.num, .figure, td.num, th.num { font-variant-numeric: tabular-nums; }
+.num { font-weight: 400; }
+.num .u { color: var(--color-muted); font-size: var(--text-xs); }
+.muted { color: var(--color-muted); font-size: var(--text-sm); }
+
+/* Vantage four-corner symmetric ticks on measured surfaces */
+.ticks {
+  position: relative;
+  background: var(--color-paper-2);
+  border-radius: var(--radius-card);
+  padding: var(--space-lg);
+}
+.ticks::before,
+.ticks::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: var(--rule-hair) solid var(--color-rule-2);
+}
+.ticks::before {
+  -webkit-mask: linear-gradient(90deg, var(--color-ink) var(--tick), transparent var(--tick), transparent calc(100% - var(--tick)), var(--color-ink) calc(100% - var(--tick)));
+  mask: linear-gradient(90deg, var(--color-ink) var(--tick), transparent var(--tick), transparent calc(100% - var(--tick)), var(--color-ink) calc(100% - var(--tick)));
+}
+.ticks::after {
+  -webkit-mask: linear-gradient(180deg, var(--color-ink) var(--tick), transparent var(--tick), transparent calc(100% - var(--tick)), var(--color-ink) calc(100% - var(--tick)));
+  mask: linear-gradient(180deg, var(--color-ink) var(--tick), transparent var(--tick), transparent calc(100% - var(--tick)), var(--color-ink) calc(100% - var(--tick)));
+}
+
+/* App Shell & Navigation */
+.app-stack { display: flex; flex-direction: column; gap: var(--space-lg); }
+.shell-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-bottom: var(--space-md);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+.shell-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+.brand-block { display: flex; flex-direction: column; gap: var(--space-2xs); }
+.brand-sub { font-size: var(--text-sm); color: var(--color-muted); }
+.shell-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 36px;
+  padding: 0 var(--space-sm);
+  border: var(--rule-hair) solid var(--color-rule-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+  white-space: nowrap;
+}
+.status-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+}
+.status-chip[data-offline="true"]::before { background: var(--color-muted); }
+
+/* Controls (8 states, 38px app height with 44px hit target) */
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 38px;
+  padding: 0 var(--space-md);
+  border: var(--rule-hair) solid var(--color-rule-2);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-short) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+.btn::after { content: ""; position: absolute; inset: -4px 0; }
+@media (hover: hover) {
+  .btn:hover { background: var(--color-paper-3); }
+}
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; transform: none; }
+.btn[aria-busy="true"] { cursor: progress; opacity: 0.75; }
+.btn--primary {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  border-color: var(--color-accent);
+}
+@media (hover: hover) {
+  .btn--primary:hover { background: var(--color-accent-hi); }
+}
+.btn[aria-pressed="true"], .btn.is-active {
+  background: var(--color-paper-3);
+  border-color: var(--color-accent);
+  color: var(--color-ink);
+}
+.cat-swatch {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--point-mid);
+  flex-shrink: 0;
+}
+.cat-swatch--model { background: var(--color-accent); }
+.cat-swatch--engine { background: var(--point-hi); }
+.cat-swatch--repo { background: var(--point-mid); }
+.cat-swatch--api { background: var(--point-lo); }
+
+/* Tab strip */
+.tab-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-xs);
+  overflow-x: auto;
+  padding-bottom: var(--space-3xs);
+}
+.tab-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 var(--space-md);
+  border: var(--rule-hair) solid transparent;
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-short) var(--ease-out);
+}
+@media (hover: hover) {
+  .tab-btn:hover { color: var(--color-ink); background: var(--color-paper-2); }
+}
+.tab-btn:active { transform: translateY(1px); }
+.tab-btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.tab-btn:disabled, .tab-btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+.tab-btn.is-active {
+  background: var(--color-paper-2);
+  border-color: var(--color-rule-2);
+  color: var(--color-ink);
+}
+.tab-btn.is-active::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-right: var(--space-xs);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+}
+
+/* Inputs & Selects (8 states, constant border width) */
+.input {
+  min-height: 38px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0 var(--space-sm);
+  border: var(--rule-hair) solid var(--color-muted);
+  border-radius: var(--radius-card);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  transition: background-color var(--dur-short) var(--ease-out);
+}
+.input::placeholder { color: var(--color-muted); }
+@media (hover: hover) {
+  .input:hover { background: var(--color-paper-2); }
+}
+.input:focus-visible { outline-color: var(--color-focus); border-color: var(--color-ink-2); }
+.input:disabled, .input[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+.input[aria-invalid="true"] { border-color: var(--color-error); }
+.input--search { width: 18rem; max-width: 100%; }
+
+/* Measured Telemetry Strip (#kpi-grid) */
+.telemetry-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-paper-2);
+}
+.telemetry-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding-inline: var(--space-md);
+  border-left: var(--rule-hair) solid var(--color-rule);
+  min-width: 0;
+}
+.telemetry-cell:first-child { padding-left: 0; border-left: 0; }
+.telemetry-cell:last-child { padding-right: 0; }
+.telemetry-label { font-size: var(--text-sm); color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.telemetry-val { font-family: var(--font-display); font-size: var(--text-xl); font-weight: 300; font-variant-numeric: tabular-nums; color: var(--color-ink); line-height: 1.1; }
+.telemetry-val--signal { color: var(--color-accent); }
+.telemetry-sub { font-size: var(--text-xs); color: var(--color-ink-2); font-variant-numeric: tabular-nums; }
+
+/* Panels, Grids & Tables (surface ladder: paper with top hairlines for ledgers, ticks on measured objects) */
+.view-stack { display: flex; flex-direction: column; gap: var(--space-lg); }
+.split-grid { display: grid; grid-template-columns: 7fr 5fr; gap: var(--gap-columns); align-items: start; }
+.panel { display: flex; flex-direction: column; gap: var(--space-md); min-width: 0; }
+.ledger-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-top: var(--space-lg);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  min-width: 0;
+}
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.panel-title-group { display: flex; flex-direction: column; gap: var(--space-3xs); }
+.table-scroll { width: 100%; overflow-x: auto; max-height: 26rem; overflow-y: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); text-align: left; }
+.data-table th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-raised);
+  background: var(--color-paper);
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--color-rule-2);
+  color: var(--color-muted);
+  font-weight: 400;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.data-table td {
+  padding: var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  color: var(--color-ink-2);
+  vertical-align: top;
+}
+.data-table tr:last-child td { border-bottom: 0; }
+.data-table td.primary-col { color: var(--color-ink); font-weight: 400; max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-table th.num, .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.signal-text { color: var(--color-accent); font-weight: 400; }
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-3xs) var(--space-xs);
+  border: var(--rule-hair) solid var(--color-rule-2);
+  border-radius: var(--radius-card);
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tag--live { border-color: var(--color-accent); color: var(--color-accent); }
+
+/* 3D Point-Cloud & Schema Viewport */
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-md);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+.toolbar-group { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs); min-width: 0; max-width: 100%; }
+.graph-layout { display: grid; grid-template-columns: 8fr 4fr; gap: var(--gap-columns); align-items: stretch; }
+.canvas-stage {
+  position: relative;
+  height: 28rem;
+  background: var(--point-core);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.canvas-stage canvas { width: 100%; height: 100%; cursor: grab; }
+.canvas-stage canvas:active { cursor: grabbing; }
+.canvas-overlay-top {
+  position: absolute;
+  top: var(--space-sm);
+  left: var(--space-sm);
+  right: var(--space-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+  pointer-events: none;
+}
+.canvas-overlay-top .btn { pointer-events: auto; min-height: 32px; padding: 0 var(--space-sm); font-size: var(--text-xs); background: color-mix(in oklab, var(--color-paper) 84%, transparent); }
+.canvas-overlay-bottom {
+  position: absolute;
+  bottom: var(--space-sm);
+  left: var(--space-sm);
+  right: var(--space-sm);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  pointer-events: none;
+}
+.hud-caption {
+  padding: var(--space-2xs) var(--space-sm);
+  background: color-mix(in oklab, var(--color-paper) 86%, transparent);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-card);
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+}
+.canvas-zoom { display: flex; gap: var(--space-2xs); pointer-events: auto; }
+.canvas-zoom .btn { min-height: 32px; padding: 0 var(--space-sm); background: color-mix(in oklab, var(--color-paper) 88%, transparent); }
+.inspector-pane {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 28rem;
+}
+.inspector-scroll { display: flex; flex-direction: column; gap: var(--space-md); overflow-y: auto; padding-right: var(--space-2xs); }
+.inspector-foot {
+  padding-top: var(--space-sm);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+.record-list { display: flex; flex-direction: column; gap: var(--space-xs); max-height: 28rem; overflow-y: auto; }
+.record-row {
+  padding: var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+.record-row:last-child { border-bottom: 0; }
+.record-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); }
+.code-chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2xs); padding-top: var(--space-3xs); }
+.code-chip {
+  padding: var(--space-3xs) var(--space-xs);
+  background: var(--color-paper-2);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-card);
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+}
+
+/* Override Form & Status */
+.form-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-sm); }
+.form-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm); }
+.field-group { display: flex; flex-direction: column; gap: var(--space-2xs); min-width: 0; }
+.field-label { font-size: var(--text-sm); color: var(--color-ink-2); font-weight: 400; }
+.form-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.helper-line {
+  min-height: 1lh;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 48rem;
+}
+.helper-line[data-error="true"] { color: var(--color-error); }
+.toast-banner {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-paper-2);
+  border-left: 2px solid var(--color-accent);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  white-space: pre-wrap;
+}
+.empty-state {
+  padding: var(--space-lg) var(--space-md);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.error-state {
+  padding: var(--space-lg) var(--space-md);
+  color: var(--color-error);
+  font-size: var(--text-sm);
+}
+.skeleton-bar {
+  display: block;
+  height: 14px;
+  width: 72%;
+  background: var(--color-paper-3);
+  border-radius: var(--radius-card);
+}
+
+@media (max-width: 60rem) {
+  :root { --gutter: 24px; }
+  .telemetry-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--space-md); }
+  .telemetry-cell:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .split-grid, .graph-layout, .form-grid-3, .form-grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .inspector-pane { height: auto; max-height: 24rem; }
+}
+@media (max-width: 40rem) {
+  :root { --gutter: 16px; --gap-columns: 16px; }
+  .telemetry-strip { grid-template-columns: minmax(0, 1fr); }
+  .telemetry-cell { padding-inline: 0; border-left: 0; border-top: var(--rule-hair) solid var(--color-rule); padding-top: var(--space-xs); }
+  .telemetry-cell:first-child { border-top: 0; padding-top: 0; }
+  .hud-caption { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *:not(.keep-motion), *:not(.keep-motion)::before, *:not(.keep-motion)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
   </style>
 </head>
-<body class="antialiased p-6 min-h-screen">
-  <div class="max-w-7xl mx-auto space-y-6">
-    <!-- Header -->
-    <div class="cg-card rounded-xl p-5 flex flex-wrap items-center justify-between gap-4 shadow-sm">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-lg bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center text-indigo-400 font-bold text-lg">
-          CG
+<body>
+  <div class="container app-stack">
+    <!-- App Shell Header -->
+    <header class="shell-header">
+      <div class="shell-top">
+        <div class="brand-block">
+          <h1>Context Graph &amp; Query Cache</h1>
+          <p class="brand-sub">Multi-LLM token ledger, file and symbol graph, and ground-truth control center</p>
         </div>
-        <div>
-          <h1 class="text-xl font-bold tracking-tight">Context Graph &amp; Query Cache</h1>
-          <p class="text-xs cg-muted">Multi-LLM Token Analytics • File &amp; Symbol Graph • Anti-Hallucination Ground-Truth Control Center</p>
+        <div class="shell-actions">
+          <span id="mode-badge" class="status-chip" role="status">SQLite cache active</span>
+          <button type="button" onclick="reloadState()" id="btn-sync" class="btn btn--primary">Sync data</button>
         </div>
       </div>
-      <div class="flex items-center gap-2">
-        <span id="mode-badge" class="text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium">
-          SQLite Cache Active
-        </span>
-        <button onclick="reloadState()" id="btn-sync" class="text-xs px-3 py-1.5 rounded-lg cg-btn-primary font-medium transition">
-          Sync &amp; Refresh Data
+
+      <!-- Navigation Tabs -->
+      <nav class="tab-bar" role="tablist" aria-label="Console views">
+        <button type="button" role="tab" aria-selected="true" onclick="switchTab('tokens')" id="tab-tokens" class="tab-btn is-active">
+          1. Cost &amp; token ledger
         </button>
-      </div>
-    </div>
+        <button type="button" role="tab" aria-selected="false" onclick="switchTab('graph')" id="tab-graph" class="tab-btn">
+          2. 3D schema &amp; AST graph
+        </button>
+        <button type="button" role="tab" aria-selected="false" onclick="switchTab('overrides')" id="tab-overrides" class="tab-btn">
+          3. Ground-truth overrides
+        </button>
+        <button type="button" role="tab" aria-selected="false" onclick="switchTab('queries')" id="tab-queries" class="tab-btn">
+          4. Cached queries
+        </button>
+      </nav>
+    </header>
 
-    <!-- KPI Cards -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4" id="kpi-grid"></div>
-
-    <!-- Navigation Tabs -->
-    <div class="flex flex-wrap gap-2 border-b border-[var(--border,#334155)] pb-2">
-      <button onclick="switchTab('tokens')" id="tab-tokens" class="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white">
-        1. Cost per Feature &amp; Token Usage
-      </button>
-      <button onclick="switchTab('graph')" id="tab-graph" class="px-4 py-2 rounded-lg text-sm font-medium cg-card cg-muted">
-        2. 3D Data Models &amp; Context Graph
-      </button>
-      <button onclick="switchTab('overrides')" id="tab-overrides" class="px-4 py-2 rounded-lg text-sm font-medium cg-card cg-muted">
-        3. Anti-Hallucination &amp; Overrides
-      </button>
-      <button onclick="switchTab('queries')" id="tab-queries" class="px-4 py-2 rounded-lg text-sm font-medium cg-card cg-muted">
-        4. Cached Queries &amp; Data
-      </button>
-    </div>
+    <!-- Measured Telemetry Strip -->
+    <section class="ticks telemetry-strip" id="kpi-grid" aria-label="Workspace telemetry summary"></section>
 
     <!-- Tab 1: Cost per Feature & Token Usage -->
-    <div id="view-tokens" class="space-y-6">
-      <div class="cg-card rounded-xl p-5 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 class="text-base font-semibold">Cost &amp; Token Usage per Feature (Git Branches &amp; Tasks)</h2>
-            <p class="text-xs cg-muted">Plugin savings are strictly $0.00 for features/tasks where the context-graph plugin was not invoked</p>
+    <main id="view-tokens" class="view-stack">
+      <section class="ledger-section">
+        <div class="panel-head">
+          <div class="panel-title-group">
+            <h2>Cost &amp; token usage per feature</h2>
+            <p class="muted">Plugin savings report $0.00 on branches where Context Graph was not invoked.</p>
           </div>
-          <input id="feature-search" oninput="renderTokens()" type="text" placeholder="Filter feature, ticket (#1643), or repo..." class="cg-input rounded-lg px-3 py-1.5 text-xs w-72" />
+          <label class="visually-hidden" for="feature-search">Filter features, tickets, or repositories</label>
+          <input id="feature-search" name="feature_search" oninput="renderTokens()" type="search" placeholder="e.g. #1643 or main" class="input input--search" />
         </div>
-        <div class="overflow-x-auto max-h-96 overflow-y-auto">
-          <table class="w-full text-left border-collapse text-sm">
+        <div class="table-scroll">
+          <table class="data-table">
             <thead>
-              <tr class="border-b border-[var(--border,#334155)] text-xs cg-muted">
-                <th class="py-2 px-3">Feature / Task</th>
-                <th class="py-2 px-3">Ticket(s)</th>
-                <th class="py-2 px-3">Repo(s) &amp; Branch</th>
-                <th class="py-2 px-3 text-right">Convs</th>
-                <th class="py-2 px-3 text-right">Turns</th>
-                <th class="py-2 px-3 text-right">Total Tokens</th>
-                <th class="py-2 px-3 text-center">Plugin Used</th>
-                <th class="py-2 px-3 text-right">Plugin Tokens Saved</th>
-                <th class="py-2 px-3 text-right">Actual Cost ($)</th>
-                <th class="py-2 px-3 text-right">Saved by Plugin ($)</th>
+              <tr>
+                <th>Feature or task</th>
+                <th>Ticket</th>
+                <th>Repo &amp; branch</th>
+                <th class="num">Convs</th>
+                <th class="num">Turns</th>
+                <th class="num">Total tokens</th>
+                <th>Plugin used</th>
+                <th class="num">Tokens saved</th>
+                <th class="num">Actual cost</th>
+                <th class="num">Saved cost</th>
               </tr>
             </thead>
             <tbody id="table-features"></tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div class="cg-card rounded-xl p-5 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <h2 class="text-base font-semibold">Token Usage &amp; Cost by LLM Client</h2>
-          <span class="text-xs cg-muted">Automatically scanned from Antigravity, Claude Code &amp; Codex CLI transcripts</span>
+      <section class="ledger-section">
+        <div class="panel-head">
+          <div class="panel-title-group">
+            <h2>Usage by LLM client</h2>
+            <p class="muted">Scanned from Antigravity, Claude Code, and Codex CLI transcripts.</p>
+          </div>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse text-sm">
+        <div class="table-scroll">
+          <table class="data-table">
             <thead>
-              <tr class="border-b border-[var(--border,#334155)] text-xs cg-muted">
-                <th class="py-2 px-3">LLM Client</th>
-                <th class="py-2 px-3 text-right">Conversations</th>
-                <th class="py-2 px-3 text-right">Turns</th>
-                <th class="py-2 px-3 text-right">Input Tokens</th>
-                <th class="py-2 px-3 text-right">API Prefix Cache</th>
-                <th class="py-2 px-3 text-right">Output Tokens</th>
-                <th class="py-2 px-3 text-right">Total Tokens</th>
-                <th class="py-2 px-3 text-right">Plugin Calls</th>
-                <th class="py-2 px-3 text-right">Actual Cost ($)</th>
-                <th class="py-2 px-3 text-right">Saved by Plugin ($)</th>
+              <tr>
+                <th>Client</th>
+                <th class="num">Convs</th>
+                <th class="num">Turns</th>
+                <th class="num">Input</th>
+                <th class="num">Prefix cache</th>
+                <th class="num">Output</th>
+                <th class="num">Total</th>
+                <th class="num">Calls</th>
+                <th class="num">Cost</th>
+                <th class="num">Saved</th>
               </tr>
             </thead>
             <tbody id="table-clients"></tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div class="cg-card rounded-xl p-5 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <h2 class="text-base font-semibold">Token Usage &amp; Cost by Project / Related Git Repository</h2>
-          <input id="repo-search" oninput="renderTokens()" type="text" placeholder="Filter repo or branch..." class="cg-input rounded-lg px-3 py-1.5 text-xs w-64" />
+      <section class="ledger-section">
+        <div class="panel-head">
+          <div class="panel-title-group">
+            <h2>Cost by project &amp; repository</h2>
+            <p class="muted">Grouped by Git root and active branch.</p>
+          </div>
+          <label class="visually-hidden" for="repo-search">Filter repository or branch</label>
+          <input id="repo-search" name="repo_search" oninput="renderTokens()" type="search" placeholder="e.g. context-graph" class="input input--search" />
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse text-sm">
+        <div class="table-scroll">
+          <table class="data-table">
             <thead>
-              <tr class="border-b border-[var(--border,#334155)] text-xs cg-muted">
-                <th class="py-2 px-3">Project / Git Repo</th>
-                <th class="py-2 px-3">Branch</th>
-                <th class="py-2 px-3 text-right">Convs</th>
-                <th class="py-2 px-3 text-right">Turns</th>
-                <th class="py-2 px-3 text-right">Total Tokens</th>
-                <th class="py-2 px-3 text-center">Plugin Used</th>
-                <th class="py-2 px-3 text-right">Plugin Tokens Saved</th>
-                <th class="py-2 px-3 text-right">Actual Cost ($)</th>
-                <th class="py-2 px-3 text-right">Saved by Plugin ($)</th>
+              <tr>
+                <th>Project or repo</th>
+                <th>Branch</th>
+                <th class="num">Convs</th>
+                <th class="num">Turns</th>
+                <th class="num">Total tokens</th>
+                <th>Plugin</th>
+                <th class="num">Tokens saved</th>
+                <th class="num">Actual cost</th>
+                <th class="num">Saved</th>
               </tr>
             </thead>
             <tbody id="table-repos"></tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div class="cg-card rounded-xl p-5 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <h2 class="text-base font-semibold">Token Usage &amp; Cost per Conversation</h2>
-          <input id="conv-search" oninput="renderTokens()" type="text" placeholder="Search feature, prompt, repo, or ID..." class="cg-input rounded-lg px-3 py-1.5 text-xs w-72" />
+      <section class="ledger-section">
+        <div class="panel-head">
+          <div class="panel-title-group">
+            <h2>Token usage per conversation</h2>
+            <p class="muted">Individual session transcripts ordered by recent activity.</p>
+          </div>
+          <label class="visually-hidden" for="conv-search">Filter conversations by prompt, repo, or ID</label>
+          <input id="conv-search" name="conv_search" oninput="renderTokens()" type="search" placeholder="e.g. 1cabc4bf or audit" class="input input--search" />
         </div>
-        <div class="overflow-x-auto max-h-96 overflow-y-auto">
-          <table class="w-full text-left border-collapse text-sm">
+        <div class="table-scroll">
+          <table class="data-table">
             <thead>
-              <tr class="border-b border-[var(--border,#334155)] text-xs cg-muted">
-                <th class="py-2 px-3">Client</th>
-                <th class="py-2 px-3">Conv ID</th>
-                <th class="py-2 px-3">Feature / Prompt</th>
-                <th class="py-2 px-3">Project / Repo</th>
-                <th class="py-2 px-3 text-right">Turns</th>
-                <th class="py-2 px-3 text-right">Total Tokens</th>
-                <th class="py-2 px-3 text-center">Plugin Used</th>
-                <th class="py-2 px-3 text-right">Plugin Tokens Saved</th>
-                <th class="py-2 px-3 text-right">Actual Cost ($)</th>
-                <th class="py-2 px-3 text-right">Saved by Plugin ($)</th>
+              <tr>
+                <th>Client</th>
+                <th>Conv ID</th>
+                <th>Feature or prompt</th>
+                <th>Repository</th>
+                <th class="num">Turns</th>
+                <th class="num">Total tokens</th>
+                <th>Plugin used</th>
+                <th class="num">Tokens saved</th>
+                <th class="num">Actual cost</th>
+                <th class="num">Saved cost</th>
               </tr>
             </thead>
             <tbody id="table-convs"></tbody>
           </table>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
 
     <!-- Tab 2: 3D Data Models & Context Graph -->
-    <div id="view-graph" class="space-y-6 hidden">
-      <div class="cg-card rounded-xl p-5 flex flex-wrap items-center justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-3">
-          <label class="text-xs font-medium cg-muted">Workspace / Schema:</label>
-          <select id="ws-select" onchange="renderGraph()" class="cg-input rounded-lg px-3 py-1.5 text-xs"></select>
-          <button onclick="toggle3DRotate()" id="btn-3d-rotate" class="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-medium">
-            3D Orbit: ON
-          </button>
-          <button onclick="toggle3DLayers()" id="btn-3d-layers" class="text-xs px-3 py-1.5 rounded-lg cg-input font-medium">
-            Layout: 3D Force Sphere
-          </button>
+    <section id="view-graph" class="view-stack hidden" aria-label="3D Data Models and Context Graph">
+      <div class="toolbar-row">
+        <div class="toolbar-group">
+          <label class="field-label" for="ws-select">Workspace</label>
+          <select id="ws-select" name="workspace" onchange="renderGraph()" class="input"></select>
+          <button type="button" onclick="toggle3DRotate()" id="btn-3d-rotate" class="btn is-active">3D orbit: on</button>
+          <button type="button" onclick="toggle3DLayers()" id="btn-3d-layers" class="btn">Layout: force sphere</button>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <button onclick="apiAction('verify')" class="text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 font-medium">
-            Verify &amp; Fix Hallucinated Symbols
-          </button>
-          <button onclick="apiAction('refresh_stale')" class="text-xs px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/40 font-medium">
-            Refresh Stale Files
-          </button>
-          <button onclick="apiAction('refresh_all')" class="text-xs px-3 py-1.5 rounded-lg cg-btn-primary font-medium">
-            Force Rebuild All
-          </button>
+        <div class="toolbar-group">
+          <button type="button" onclick="apiAction('verify')" class="btn">Verify symbols</button>
+          <button type="button" onclick="apiAction('refresh_stale')" class="btn">Refresh stale</button>
+          <button type="button" onclick="apiAction('refresh_all')" class="btn">Rebuild index</button>
         </div>
       </div>
 
-      <div id="action-toast" class="hidden cg-card rounded-xl p-4 border-l-4 border-indigo-500 text-xs font-mono whitespace-pre-wrap"></div>
+      <div id="action-toast" role="status" aria-live="polite" class="hidden toast-banner"></div>
 
-      <!-- Interactive 3D Data Model & AST Graph Viewport -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div class="lg:col-span-2 cg-card rounded-xl p-3 relative overflow-hidden" style="height: 440px; background: #090d16;">
-          <canvas id="graph3d-canvas" class="w-full h-full cursor-grab active:cursor-grabbing block"></canvas>
-          <div class="absolute top-4 left-4 flex flex-wrap gap-1.5">
-            <button onclick="set3DFilter('all')" class="text-xs px-2.5 py-1 rounded bg-white/15 text-white border border-white/25">All Nodes</button>
-            <button onclick="set3DFilter('model')" class="text-xs px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Data Models / Tables</button>
-            <button onclick="set3DFilter('engine')" class="text-xs px-2.5 py-1 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">Engines / UseCases</button>
-            <button onclick="set3DFilter('repo')" class="text-xs px-2.5 py-1 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40">Repos / Queries</button>
-            <button onclick="set3DFilter('api')" class="text-xs px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">APIs / Overrides</button>
+      <!-- Interactive 3D Point-Cloud & AST Graph Viewport -->
+      <div class="graph-layout">
+        <div class="canvas-stage" id="graph3d-stage">
+          <canvas id="graph3d-canvas" role="img" aria-label="Interactive 3D point-cloud data model and AST relationship graph"></canvas>
+          <div class="canvas-overlay-top" role="toolbar" aria-label="Node category filter">
+            <button type="button" data-filter="all" aria-pressed="true" onclick="set3DFilter('all')" class="btn is-active">All clusters</button>
+            <button type="button" data-filter="model" aria-pressed="false" onclick="set3DFilter('model')" class="btn"><span class="cat-swatch cat-swatch--model" aria-hidden="true"></span>Data models</button>
+            <button type="button" data-filter="engine" aria-pressed="false" onclick="set3DFilter('engine')" class="btn"><span class="cat-swatch cat-swatch--engine" aria-hidden="true"></span>Engines</button>
+            <button type="button" data-filter="repo" aria-pressed="false" onclick="set3DFilter('repo')" class="btn"><span class="cat-swatch cat-swatch--repo" aria-hidden="true"></span>Repositories</button>
+            <button type="button" data-filter="api" aria-pressed="false" onclick="set3DFilter('api')" class="btn"><span class="cat-swatch cat-swatch--api" aria-hidden="true"></span>APIs &amp; pins</button>
           </div>
-          <div class="absolute bottom-4 left-4 right-4 flex items-center justify-between pointer-events-none">
-            <span id="graph3d-hud" class="text-xs font-mono px-2.5 py-1 rounded bg-slate-900/80 text-slate-300 border border-slate-700">Drag to Orbit 3D • Scroll to Zoom • Click Node to Inspect</span>
-            <div class="flex gap-1.5 pointer-events-auto">
-              <button onclick="zoom3D(1.18)" class="text-xs px-2.5 py-1 rounded bg-slate-900/85 text-white border border-slate-700 font-bold">+</button>
-              <button onclick="zoom3D(0.85)" class="text-xs px-2.5 py-1 rounded bg-slate-900/85 text-white border border-slate-700 font-bold">&minus;</button>
+          <div class="canvas-overlay-bottom">
+            <span id="graph3d-hud" class="hud-caption">Drag to orbit 3D, scroll to zoom, click a point cluster to inspect</span>
+            <div class="canvas-zoom">
+              <button type="button" onclick="zoom3D(1.18)" class="btn" aria-label="Zoom in">+</button>
+              <button type="button" onclick="zoom3D(0.85)" class="btn" aria-label="Zoom out">&minus;</button>
             </div>
           </div>
         </div>
-        <div class="cg-card rounded-xl p-5 flex flex-col justify-between" style="height: 440px;">
-          <div id="graph3d-inspector" class="space-y-3 overflow-y-auto pr-1"></div>
-          <div class="pt-3 border-t border-[var(--border)] text-xs cg-muted flex items-center justify-between">
-            <span>3D Perspective Projection</span>
-            <span class="text-emerald-400">PK / FK &amp; AST Graph</span>
+        <aside class="ticks inspector-pane" aria-label="Selected node inspector">
+          <div id="graph3d-inspector" class="inspector-scroll"></div>
+          <div class="inspector-foot">
+            <span>3D lidar point cloud</span>
+            <span class="signal-text">PK, FK &amp; AST scan</span>
           </div>
-        </div>
+        </aside>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div class="lg:col-span-2 cg-card rounded-xl p-5 space-y-3">
-          <h3 class="text-base font-semibold">Tracked Files &amp; AST Symbols</h3>
-          <div id="files-list" class="space-y-2.5 max-h-[500px] overflow-y-auto pr-1"></div>
-        </div>
-        <div class="cg-card rounded-xl p-5 space-y-3">
-          <h3 class="text-base font-semibold">File &amp; Implementation Relationships</h3>
-          <div id="rels-list" class="space-y-2 max-h-[500px] overflow-y-auto pr-1"></div>
-        </div>
+      <div class="split-grid">
+        <section class="ledger-section">
+          <h2>Tracked files &amp; AST symbols</h2>
+          <div id="files-list" class="record-list"></div>
+        </section>
+        <section class="ledger-section">
+          <h2>Implementation relationships</h2>
+          <div id="rels-list" class="record-list"></div>
+        </section>
       </div>
-    </div>
+    </section>
 
     <!-- Tab 3: Anti-Hallucination & Overrides -->
-    <div id="view-overrides" class="space-y-6 hidden">
-      <div class="cg-card rounded-xl p-5 space-y-4">
-        <h3 class="text-base font-semibold">Pin a Verified Ground-Truth Override (Anti-Hallucination Pin)</h3>
-        <p class="text-xs cg-muted">
-          Ground-truth pins are injected at the top of SessionStart and file context lookups so the LLM never repeats a corrected mistake.
-        </p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input id="ov-ws" type="text" placeholder="Workspace path (or 'global')" class="cg-input rounded-lg px-3 py-2 text-xs" />
-          <input id="ov-key" type="text" placeholder="Override slug (e.g. api-timeout-ms)" class="cg-input rounded-lg px-3 py-2 text-xs" />
-          <select id="ov-priority" class="cg-input rounded-lg px-3 py-2 text-xs">
-            <option value="critical">Priority: CRITICAL</option>
-            <option value="high" selected>Priority: HIGH</option>
-            <option value="normal">Priority: NORMAL</option>
-          </select>
+    <section id="view-overrides" class="view-stack hidden" aria-label="Anti-Hallucination Ground-Truth Overrides">
+      <div class="ticks panel">
+        <div class="panel-title-group">
+          <h2>Pin a verified ground-truth override</h2>
+          <p class="muted">Ground-truth pins are injected at SessionStart and file context lookups so corrected mistakes never recur.</p>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input id="ov-mistake" type="text" placeholder="Hallucination / false assumption to prevent..." class="cg-input rounded-lg px-3 py-2 text-xs" />
-          <input id="ov-truth" type="text" placeholder="Verified ground-truth rule that MUST be followed..." class="cg-input rounded-lg px-3 py-2 text-xs" />
+        <div class="form-grid-3">
+          <div class="field-group">
+            <label class="field-label" for="ov-ws">Workspace path (required)</label>
+            <input id="ov-ws" name="workspace_path" type="text" placeholder="global" class="input" aria-required="true" />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="ov-key">Override slug (required)</label>
+            <input id="ov-key" name="override_key" type="text" placeholder="api-timeout-ms" class="input" aria-required="true" />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="ov-priority">Priority</label>
+            <select id="ov-priority" name="priority" class="input">
+              <option value="critical">Priority: critical</option>
+              <option value="high" selected>Priority: high</option>
+              <option value="normal">Priority: normal</option>
+            </select>
+          </div>
         </div>
-        <div class="flex items-center justify-between gap-3">
-          <span id="ov-cli-preview" class="text-xs font-mono cg-muted truncate"></span>
-          <button onclick="submitOverride()" class="px-4 py-2 rounded-lg cg-btn-primary text-xs font-semibold">
-            Save Ground-Truth Pin
-          </button>
+        <div class="form-grid-2">
+          <div class="field-group">
+            <label class="field-label" for="ov-mistake">Hallucination or false assumption</label>
+            <input id="ov-mistake" name="mistake" type="text" placeholder="Legacy v1 controller handles v3 routes" class="input" />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="ov-truth">Verified ground-truth rule (required)</label>
+            <input id="ov-truth" name="verified_truth" type="text" placeholder="AdmissionV3 uses AdmissionV3Engine" class="input" aria-required="true" />
+          </div>
+        </div>
+        <div class="form-footer">
+          <span id="ov-cli-preview" class="helper-line" aria-live="polite">Ready to pin ground-truth rule to SQLite store.</span>
+          <button type="button" onclick="submitOverride()" class="btn btn--primary">Save ground-truth pin</button>
         </div>
       </div>
 
-      <div class="cg-card rounded-xl p-5 space-y-3">
-        <h3 class="text-base font-semibold">Active Ground-Truth Overrides</h3>
-        <div id="overrides-list" class="space-y-2.5"></div>
+      <div class="ledger-section">
+        <h2>Active ground-truth overrides</h2>
+        <div id="overrides-list" class="record-list"></div>
       </div>
-    </div>
+    </section>
 
     <!-- Tab 4: Cached Queries -->
-    <div id="view-queries" class="space-y-6 hidden">
-      <div class="cg-card rounded-xl p-5 space-y-3">
-        <h3 class="text-base font-semibold">Stored Queries &amp; Generated Data</h3>
-        <div id="queries-list" class="space-y-3"></div>
+    <section id="view-queries" class="view-stack hidden" aria-label="Cached Queries and Generated Data">
+      <div class="ledger-section">
+        <h2>Stored queries &amp; generated datasets</h2>
+        <div id="queries-list" class="record-list"></div>
       </div>
-    </div>
+    </section>
   </div>
 
   <script>
     const vscodeApi = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
     const API_BASE = window.location.protocol.startsWith('http') ? '' : 'http://127.0.0.1:8765';
+    const REDUCED_MOTION = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let DATA_STATE = window.__INITIAL_CG_STATE__ ? 'full' : 'loading';
     let STATE = window.__INITIAL_CG_STATE__ || {
       token_report: {
         grand_totals: {
@@ -381,15 +873,20 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       overviews: {}
     };
 
+    function readToken(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
     window.addEventListener('message', event => {
       const msg = event.data;
       if (!msg || typeof msg !== 'object') return;
       if (msg.type === 'stateUpdate' && msg.state) {
         STATE = msg.state;
+        DATA_STATE = 'full';
         const badge = document.getElementById('mode-badge');
         if (badge) {
-          badge.textContent = 'VS Code Extension Connected';
-          badge.className = 'text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium';
+          badge.textContent = 'VS Code extension connected';
+          badge.removeAttribute('data-offline');
         }
         if (msg.toastMessage) {
           const toast = document.getElementById('action-toast');
@@ -414,22 +911,29 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
     function switchTab(tab) {
       ['tokens', 'graph', 'overrides', 'queries'].forEach(t => {
-        document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
+        const view = document.getElementById('view-' + t);
+        if (view) view.classList.toggle('hidden', t !== tab);
         const btn = document.getElementById('tab-' + t);
-        if (t === tab) {
-          btn.className = 'px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white';
-        } else {
-          btn.className = 'px-4 py-2 rounded-lg text-sm font-medium cg-card cg-muted';
+        if (btn) {
+          btn.classList.toggle('is-active', t === tab);
+          btn.setAttribute('aria-selected', t === tab ? 'true' : 'false');
         }
       });
+      if (typeof history !== 'undefined' && history.replaceState) {
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('tab', tab);
+          history.replaceState(null, '', url.toString());
+        } catch (_) {}
+      }
     }
 
     function pluginBadge(calls) {
       const n = Number(calls || 0);
       if (n > 0) {
-        return `<span class="px-2 py-0.5 text-xs rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">Yes (${n})</span>`;
+        return `<span class="tag tag--live">Yes (${n})</span>`;
       }
-      return `<span class="px-2 py-0.5 text-xs rounded bg-slate-800 cg-muted font-mono">No</span>`;
+      return `<span class="tag">No</span>`;
     }
 
     function renderKPIs() {
@@ -443,20 +947,30 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       });
 
       const cards = [
-        { label: 'Est. Total LLM Spend', val: fmtUsd(gt.estimated_cost_usd), sub: `${fmtNum(gt.total_conversations)} conversations (${featCount} features)` },
-        { label: 'Saved by Context-Graph', val: fmtUsd(gt.estimated_cache_savings_usd), sub: `${fmtNum(gt.plugin_tokens_saved)} tokens (${fmtNum(gt.plugin_calls)} plugin calls)` },
-        { label: 'Total Tokens Tracked', val: fmtNum(gt.total_tokens), sub: `${fmtNum(gt.input_tokens)} in / ${fmtNum(gt.output_tokens)} out` },
-        { label: 'Indexed Graph & Edges', val: `${totalFiles} files`, sub: `${totalRels} implementation edges` },
-        { label: 'Ground-Truth Pins', val: `${totalOverrides}`, sub: `Anti-hallucination overrides` },
+        { label: 'Est. total LLM spend', val: fmtUsd(gt.estimated_cost_usd), sub: `${fmtNum(gt.total_conversations)} convs across ${featCount} features`, signal: false },
+        { label: 'Saved by Context Graph', val: fmtUsd(gt.estimated_cache_savings_usd), sub: `${fmtNum(gt.plugin_tokens_saved)} tokens (${fmtNum(gt.plugin_calls)} calls)`, signal: true },
+        { label: 'Total tokens tracked', val: fmtNum(gt.total_tokens), sub: `${fmtNum(gt.input_tokens)} in / ${fmtNum(gt.output_tokens)} out`, signal: false },
+        { label: 'Indexed AST graph', val: `${fmtNum(totalFiles)} files`, sub: `${fmtNum(totalRels)} implementation edges`, signal: false },
+        { label: 'Ground-truth pins', val: `${fmtNum(totalOverrides)}`, sub: 'Active anti-hallucination rules', signal: false },
       ];
 
       document.getElementById('kpi-grid').innerHTML = cards.map(c => `
-        <div class="cg-card rounded-xl p-4">
-          <div class="text-xs cg-muted">${c.label}</div>
-          <div class="text-xl font-bold mt-1">${c.val}</div>
-          <div class="text-xs cg-muted mt-1">${c.sub}</div>
+        <div class="telemetry-cell">
+          <div class="telemetry-label">${c.label}</div>
+          <div class="telemetry-val ${c.signal ? 'telemetry-val--signal' : ''}">${DATA_STATE === 'loading' ? '<span class="skeleton-bar" aria-hidden="true"></span>' : c.val}</div>
+          <div class="telemetry-sub">${c.sub}</div>
         </div>
       `).join('');
+    }
+
+    function stateTableRow(colspan, what, why) {
+      if (DATA_STATE === 'loading') {
+        return `<tr><td colspan="${colspan}"><span class="skeleton-bar" aria-hidden="true"></span></td></tr>`;
+      }
+      if (DATA_STATE === 'error') {
+        return `<tr><td colspan="${colspan}" class="error-state">Local SQLite API at 127.0.0.1:8765 did not respond. Start python3 scripts/ui_server.py --port 8765 and click Sync data.</td></tr>`;
+      }
+      return `<tr><td colspan="${colspan}" class="empty-state">${what}. ${why}</td></tr>`;
     }
 
     function renderTokens() {
@@ -472,45 +986,46 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       );
       const featEl = document.getElementById('table-features');
       if (featEl) {
-        featEl.innerHTML = features.map(f => {
+        featEl.innerHTML = features.length ? features.map(f => {
           const used = Number(f.plugin_calls || 0) > 0;
           return `
-            <tr class="border-b border-[var(--border,#334155)]/50">
-              <td class="py-2.5 px-3 font-semibold max-w-xs truncate" title="${(f.feature_name || '').replace(/"/g, '&quot;')}">${f.feature_name}</td>
-              <td class="py-2.5 px-3 font-mono text-xs text-amber-300">${f.ticket_id || '-'}</td>
-              <td class="py-2.5 px-3">
-                <div class="text-xs font-medium">${f.repo_name}</div>
-                <div class="text-xs font-mono text-sky-400 truncate max-w-xs">${f.git_branch || '-'}</div>
+            <tr>
+              <td class="primary-col" title="${(f.feature_name || '').replace(/"/g, '&quot;')}">${f.feature_name}</td>
+              <td class="num">${f.ticket_id || 'None'}</td>
+              <td>
+                <div>${f.repo_name}</div>
+                <div class="muted">${f.git_branch || 'default'}</div>
               </td>
-              <td class="py-2.5 px-3 text-right">${fmtNum(f.conversation_count)}</td>
-              <td class="py-2.5 px-3 text-right">${fmtNum(f.total_turns)}</td>
-              <td class="py-2.5 px-3 text-right font-bold">${fmtNum(f.total_tokens)}</td>
-              <td class="py-2.5 px-3 text-center">${pluginBadge(f.plugin_calls)}</td>
-              <td class="py-2.5 px-3 text-right ${used ? 'text-emerald-400 font-medium' : 'cg-muted'}">${used ? fmtNum(f.plugin_tokens_saved) : '0'}</td>
-              <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(f.estimated_cost_usd)}</td>
-              <td class="py-2.5 px-3 text-right ${used ? 'font-bold text-emerald-400' : 'cg-muted'}">${used ? fmtUsd(f.estimated_cache_savings_usd) : '$0.00'}</td>
+              <td class="num">${fmtNum(f.conversation_count)}</td>
+              <td class="num">${fmtNum(f.total_turns)}</td>
+              <td class="num">${fmtNum(f.total_tokens)}</td>
+              <td>${pluginBadge(f.plugin_calls)}</td>
+              <td class="num ${used ? 'signal-text' : ''}">${used ? fmtNum(f.plugin_tokens_saved) : '0'}</td>
+              <td class="num">${fmtUsd(f.estimated_cost_usd)}</td>
+              <td class="num ${used ? 'signal-text' : ''}">${used ? fmtUsd(f.estimated_cache_savings_usd) : '$0.00'}</td>
             </tr>
           `;
-        }).join('');
+        }).join('') : stateTableRow(10, 'No matching feature branches recorded', 'Run Sync data or clear the search filter to view all tracked tasks.');
       }
 
-      document.getElementById('table-clients').innerHTML = (tr.by_client || []).map(c => {
+      const clients = tr.by_client || [];
+      document.getElementById('table-clients').innerHTML = clients.length ? clients.map(c => {
         const used = Number(c.plugin_calls || 0) > 0;
         return `
-          <tr class="border-b border-[var(--border,#334155)]/50">
-            <td class="py-2.5 px-3 font-semibold text-indigo-400">${c.client_source}</td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(c.conversation_count)}</td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(c.total_turns)}</td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(c.input_tokens)}</td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(c.cache_read_tokens)}</td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(c.output_tokens)}</td>
-            <td class="py-2.5 px-3 text-right font-bold">${fmtNum(c.total_tokens)}</td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(c.plugin_calls)}</td>
-            <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(c.estimated_cost_usd)}</td>
-            <td class="py-2.5 px-3 text-right ${used ? 'font-bold text-emerald-400' : 'cg-muted'}">${used ? fmtUsd(c.estimated_cache_savings_usd) : '$0.00'}</td>
+          <tr>
+            <td class="primary-col">${c.client_source}</td>
+            <td class="num">${fmtNum(c.conversation_count)}</td>
+            <td class="num">${fmtNum(c.total_turns)}</td>
+            <td class="num">${fmtNum(c.input_tokens)}</td>
+            <td class="num">${fmtNum(c.cache_read_tokens)}</td>
+            <td class="num">${fmtNum(c.output_tokens)}</td>
+            <td class="num">${fmtNum(c.total_tokens)}</td>
+            <td class="num">${fmtNum(c.plugin_calls)}</td>
+            <td class="num">${fmtUsd(c.estimated_cost_usd)}</td>
+            <td class="num ${used ? 'signal-text' : ''}">${used ? fmtUsd(c.estimated_cache_savings_usd) : '$0.00'}</td>
           </tr>
         `;
-      }).join('');
+      }).join('') : stateTableRow(10, 'No client transcript metrics available', 'Start a session in Antigravity, Claude Code, or Codex CLI and click Sync data.');
 
       const rFilter = (document.getElementById('repo-search')?.value || '').toLowerCase();
       const repos = (tr.by_project_repo || []).filter(r =>
@@ -519,25 +1034,25 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         (r.project_root || '').toLowerCase().includes(rFilter) ||
         (r.git_branch || '').toLowerCase().includes(rFilter)
       );
-      document.getElementById('table-repos').innerHTML = repos.map(r => {
+      document.getElementById('table-repos').innerHTML = repos.length ? repos.map(r => {
         const used = Number(r.plugin_calls || 0) > 0;
         return `
-          <tr class="border-b border-[var(--border,#334155)]/50">
-            <td class="py-2.5 px-3">
-              <div class="font-semibold">${r.repo_name}</div>
-              <div class="text-xs cg-muted truncate max-w-xs">${r.project_root}</div>
+          <tr>
+            <td class="primary-col">
+              <div>${r.repo_name}</div>
+              <div class="muted">${r.project_root}</div>
             </td>
-            <td class="py-2.5 px-3 font-mono text-xs text-sky-400">${r.git_branch || '-'}</td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(r.conversation_count)}</td>
-            <td class="py-2.5 px-3 text-right">${fmtNum(r.total_turns)}</td>
-            <td class="py-2.5 px-3 text-right font-bold">${fmtNum(r.total_tokens)}</td>
-            <td class="py-2.5 px-3 text-center">${pluginBadge(r.plugin_calls)}</td>
-            <td class="py-2.5 px-3 text-right ${used ? 'text-emerald-400 font-medium' : 'cg-muted'}">${used ? fmtNum(r.plugin_tokens_saved) : '0'}</td>
-            <td class="py-2.5 px-3 text-right font-bold text-amber-300">${fmtUsd(r.estimated_cost_usd)}</td>
-            <td class="py-2.5 px-3 text-right ${used ? 'font-bold text-emerald-400' : 'cg-muted'}">${used ? fmtUsd(r.estimated_cache_savings_usd) : '$0.00'}</td>
+            <td>${r.git_branch || 'default'}</td>
+            <td class="num">${fmtNum(r.conversation_count)}</td>
+            <td class="num">${fmtNum(r.total_turns)}</td>
+            <td class="num">${fmtNum(r.total_tokens)}</td>
+            <td>${pluginBadge(r.plugin_calls)}</td>
+            <td class="num ${used ? 'signal-text' : ''}">${used ? fmtNum(r.plugin_tokens_saved) : '0'}</td>
+            <td class="num">${fmtUsd(r.estimated_cost_usd)}</td>
+            <td class="num ${used ? 'signal-text' : ''}">${used ? fmtUsd(r.estimated_cache_savings_usd) : '$0.00'}</td>
           </tr>
         `;
-      }).join('');
+      }).join('') : stateTableRow(9, 'No matching repositories found', 'Clear the repository filter or index a workspace to populate repository costs.');
 
       const cFilter = (document.getElementById('conv-search')?.value || '').toLowerCase();
       const convs = (tr.by_conversation || []).filter(c =>
@@ -547,47 +1062,47 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         (c.repo_name || '').toLowerCase().includes(cFilter) ||
         (c.conversation_id || '').toLowerCase().includes(cFilter)
       );
-      document.getElementById('table-convs').innerHTML = convs.map(c => {
+      document.getElementById('table-convs').innerHTML = convs.length ? convs.map(c => {
         const used = Number(c.plugin_calls || 0) > 0;
         return `
-          <tr class="border-b border-[var(--border,#334155)]/50">
-            <td class="py-2 px-3 text-xs font-mono text-indigo-400">${c.client_source}</td>
-            <td class="py-2 px-3 text-xs font-mono cg-muted">${c.conversation_id.slice(0, 8)}...</td>
-            <td class="py-2 px-3 max-w-xs truncate" title="${(c.title || '').replace(/"/g, '&quot;')}">
-              <div class="font-medium truncate">${c.feature_name || c.title}</div>
-              <div class="text-xs cg-muted truncate">${c.title}</div>
+          <tr>
+            <td>${c.client_source}</td>
+            <td class="num">${c.conversation_id.slice(0, 8)}&hellip;</td>
+            <td class="primary-col" title="${(c.title || '').replace(/"/g, '&quot;')}">
+              <div>${c.feature_name || c.title}</div>
+              <div class="muted">${c.title}</div>
             </td>
-            <td class="py-2 px-3 font-medium">${c.repo_name}</td>
-            <td class="py-2 px-3 text-right">${fmtNum(c.turn_count)}</td>
-            <td class="py-2.5 px-3 text-right font-bold">${fmtNum(c.total_tokens)}</td>
-            <td class="py-2 px-3 text-center">${pluginBadge(c.plugin_calls)}</td>
-            <td class="py-2 px-3 text-right ${used ? 'text-emerald-400 font-medium' : 'cg-muted'}">${used ? fmtNum(c.plugin_tokens_saved) : '0'}</td>
-            <td class="py-2 px-3 text-right font-bold text-amber-300">${fmtUsd(c.estimated_cost_usd)}</td>
-            <td class="py-2 px-3 text-right ${used ? 'font-bold text-emerald-400' : 'cg-muted'}">${used ? fmtUsd(c.estimated_cache_savings_usd) : '$0.00'}</td>
+            <td>${c.repo_name}</td>
+            <td class="num">${fmtNum(c.turn_count)}</td>
+            <td class="num">${fmtNum(c.total_tokens)}</td>
+            <td>${pluginBadge(c.plugin_calls)}</td>
+            <td class="num ${used ? 'signal-text' : ''}">${used ? fmtNum(c.plugin_tokens_saved) : '0'}</td>
+            <td class="num">${fmtUsd(c.estimated_cost_usd)}</td>
+            <td class="num ${used ? 'signal-text' : ''}">${used ? fmtUsd(c.estimated_cache_savings_usd) : '$0.00'}</td>
           </tr>
         `;
-      }).join('');
+      }).join('') : stateTableRow(10, 'No matching conversations recorded', 'Clear the conversation search field or sync local transcripts.');
     }
 
-    const G3D_COLORS = {
-      model:  { fill: '#10b981', glow: 'rgba(16,185,129,0.45)', badge: 'Data Model / Table', text: '#6ee7b7' },
-      engine: { fill: '#6366f1', glow: 'rgba(99,102,241,0.45)', badge: 'Engine / UseCase', text: '#a5b4fc' },
-      repo:   { fill: '#0ea5e9', glow: 'rgba(14,165,233,0.45)', badge: 'Repository / Cache', text: '#7dd3fc' },
-      api:    { fill: '#f59e0b', glow: 'rgba(245,158,11,0.45)', badge: 'API / Ground-Truth', text: '#fcd34d' },
-      ui:     { fill: '#ec4899', glow: 'rgba(236,72,153,0.45)', badge: 'UI / Hook', text: '#f9a8d4' }
+    const G3D_CATEGORIES = {
+      model:  { token: '--color-accent', badge: 'Data model or table' },
+      engine: { token: '--point-hi', badge: 'Engine or use case' },
+      repo:   { token: '--point-mid', badge: 'Repository or cache' },
+      api:    { token: '--point-lo', badge: 'API or ground-truth pin' },
+      ui:     { token: '--point-mid', badge: 'UI or hook' }
     };
 
     const SQLITE_CORE_MODELS = {
       nodes: [
-        { id: 'files', label: 'files (Table)', category: 'model', tier: -1, size: 22, summary: 'Primary file & AST symbol index table storing SHA-256 signatures and extracted symbol line maps.', fields: ['PK (workspace_path, file_path)', 'rel_path : TEXT', 'content_hash : SHA-256', 'symbols_json : JSON [{name, kind, line}]', 'exports_json : JSON', 'tags_json : JSON'] },
-        { id: 'relationships', label: 'relationships (Table)', category: 'model', tier: -1, size: 19, summary: 'Directed implementation graph edges connecting source and target files.', fields: ['PK (workspace_path, source_file, target_file, relation_type)', 'FK source_file -> files.file_path', 'FK target_file -> files.file_path', 'relation_type : imports | calls | reads_data_from | writes_data_to'] },
+        { id: 'files', label: 'files (table)', category: 'model', tier: -1, size: 22, summary: 'Primary file and AST symbol index table storing SHA-256 signatures and extracted symbol line maps.', fields: ['PK (workspace_path, file_path)', 'rel_path : TEXT', 'content_hash : SHA-256', 'symbols_json : JSON [{name, kind, line}]', 'exports_json : JSON', 'tags_json : JSON'] },
+        { id: 'relationships', label: 'relationships (table)', category: 'model', tier: -1, size: 19, summary: 'Directed implementation graph edges connecting source and target files.', fields: ['PK (workspace_path, source_file, target_file, relation_type)', 'FK source_file -> files.file_path', 'FK target_file -> files.file_path', 'relation_type : imports | calls | reads_data_from | writes_data_to'] },
         { id: 'ground_truth_overrides', label: 'ground_truth_overrides', category: 'api', tier: -1, size: 20, summary: 'Verified anti-hallucination rules and user corrections injected at SessionStart.', fields: ['PK (workspace_path, override_key)', 'hallucination_or_mistake : TEXT', 'verified_truth : TEXT', 'scope_files_json : JSON -> files', 'priority : critical | high | normal'] },
-        { id: 'cached_queries', label: 'cached_queries (Table)', category: 'repo', tier: -1, size: 18, summary: 'Reusable cache of expensive database queries, API responses, and generated datasets.', fields: ['PK (workspace_path, query_key)', 'category : queried_data | generated_data', 'result_summary : TEXT', 'data_json : JSON', 'related_files_json : JSON -> files'] },
+        { id: 'cached_queries', label: 'cached_queries (table)', category: 'repo', tier: -1, size: 18, summary: 'Reusable cache of expensive database queries, API responses, and generated datasets.', fields: ['PK (workspace_path, query_key)', 'category : queried_data | generated_data', 'result_summary : TEXT', 'data_json : JSON', 'related_files_json : JSON -> files'] },
         { id: 'conversation_usage', label: 'conversation_usage', category: 'model', tier: -1, size: 21, summary: 'Multi-LLM token analytics per conversation and related Git repository.', fields: ['PK conversation_id : TEXT', 'client_source : antigravity | claude-code | codex-cli', 'repo_name & git_branch : TEXT', 'input_tokens, cache_read_tokens, output_tokens, total_tokens : INT'] },
-        { id: 'tool_activity', label: 'tool_activity (Table)', category: 'repo', tier: 0, size: 15, summary: 'Audit log of PostToolUse file reads, edits, and tool calls.', fields: ['PK id : INTEGER', 'FK session_id -> conversation_usage', 'FK target_path -> files.file_path', 'tool_name : TEXT'] },
-        { id: 'db_engine', label: 'server/db_engine.py', category: 'engine', tier: 0, size: 24, summary: 'Core SQLite Graph Engine, AST Static Indexer, Hallucination Verifier & Transcript Scanner.', fields: ['auto_index_workspace()', 'verify_and_fix_hallucinations()', 'record_correction()', 'refresh_context()', 'get_token_usage_report()'] },
+        { id: 'tool_activity', label: 'tool_activity (table)', category: 'repo', tier: 0, size: 15, summary: 'Audit log of PostToolUse file reads, edits, and tool calls.', fields: ['PK id : INTEGER', 'FK session_id -> conversation_usage', 'FK target_path -> files.file_path', 'tool_name : TEXT'] },
+        { id: 'db_engine', label: 'server/db_engine.py', category: 'engine', tier: 0, size: 24, summary: 'Core SQLite Graph Engine, AST Static Indexer, Hallucination Verifier, and Transcript Scanner.', fields: ['auto_index_workspace()', 'verify_and_fix_hallucinations()', 'record_correction()', 'refresh_context()', 'get_token_usage_report()'] },
         { id: 'mcp_server', label: 'server/mcp_server.py', category: 'api', tier: 1, size: 18, summary: 'Stdio JSON-RPC 2.0 MCP Server exposing 12 tools to all LLM clients.', fields: ['cache_get_overview', 'cache_get_file_context', 'cache_record_correction', 'cache_verify_and_fix_hallucinations', 'cache_get_token_usage'] },
-        { id: 'ui_server', label: 'scripts/ui_server.py', category: 'ui', tier: 1, size: 17, summary: 'Interactive Web UI Control Center & 3D Data Model Explorer.', fields: ['GET /api/state', 'POST /api/action', '3D Data Model Graph Canvas'] }
+        { id: 'ui_server', label: 'scripts/ui_server.py', category: 'ui', tier: 1, size: 17, summary: 'Interactive Web UI Control Center and 3D Data Model Explorer.', fields: ['GET /api/state', 'POST /api/action', '3D Data Model Graph Canvas'] }
       ],
       edges: [
         { source: 'relationships', target: 'files', type: 'FK source/target' },
@@ -605,9 +1120,9 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       ]
     };
 
-    let g3dNodes = [], g3dEdges = [], g3dParticles = [], g3dSelected = null;
-    let g3dFilter = 'all', g3dRotate = true, g3dLayers = false;
-    let g3dRotY = 0.45, g3dRotX = 0.26, g3dZoom = 1.0;
+    let g3dNodes = [], g3dEdges = [], g3dSelected = null;
+    let g3dFilter = 'all', g3dRotate = !REDUCED_MOTION, g3dLayers = false, g3dHoverPause = false;
+    let g3dRotY = 0.45, g3dRotX = 0.26, g3dZoom = 1.0, g3dSweepPhase = 0.35;
     let g3dDrag = false, g3dMoved = false, g3dSX = 0, g3dSY = 0, g3dStarted = false;
 
     function classify3DCategory(relPath, summary) {
@@ -619,6 +1134,23 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       return 'engine';
     }
 
+    function buildClusterSamples(size) {
+      const count = Math.max(28, size * 2);
+      const samples = [];
+      for (let k = 0; k < count; k++) {
+        const phi = Math.acos(1 - 2 * (k + 0.5) / count);
+        const theta = Math.PI * (1 + Math.sqrt(5)) * k;
+        const r = (size * 1.15) * (0.55 + 0.45 * ((k * 7) % 11) / 10);
+        samples.push({
+          ox: r * Math.sin(phi) * Math.cos(theta),
+          oy: r * Math.cos(phi) * 0.72,
+          oz: r * Math.sin(phi) * Math.sin(theta),
+          elev: (Math.cos(phi) + 1) * 0.5
+        });
+      }
+      return samples;
+    }
+
     function load3DGraph(graphData) {
       const nCount = graphData.nodes.length || 1;
       g3dNodes = graphData.nodes.map((n, i) => {
@@ -628,16 +1160,16 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         return {
           ...n,
           x: rad * Math.sin(phi) * Math.cos(theta),
-          y: (n.tier || 0) * 80 + (Math.random() - 0.5) * 30,
+          y: (n.tier || 0) * 80 + ((i % 3) - 1) * 14,
           z: rad * Math.cos(phi),
-          vx: 0, vy: 0, vz: 0, projX: 0, projY: 0, projScale: 1, depthZ: 0
+          vx: 0, vy: 0, vz: 0, projX: 0, projY: 0, projScale: 1, depthZ: 0,
+          samples: buildClusterSamples(n.size || 18)
         };
       });
       const map = Object.fromEntries(g3dNodes.map(n => [n.id, n]));
       g3dEdges = (graphData.edges || [])
         .filter(e => map[e.source] && map[e.target])
         .map(e => ({ ...e, sourceNode: map[e.source], targetNode: map[e.target] }));
-      g3dParticles = g3dEdges.map((e, idx) => ({ edge: e, t: (idx * 0.21) % 1, speed: 0.006 + (idx % 3) * 0.002 }));
       g3dSelected = g3dNodes[0] || null;
       render3DInspector();
     }
@@ -645,29 +1177,29 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
     function render3DInspector() {
       const box = document.getElementById('graph3d-inspector');
       if (!box || !g3dSelected) return;
-      const col = G3D_COLORS[g3dSelected.category] || G3D_COLORS.engine;
+      const meta = G3D_CATEGORIES[g3dSelected.category] || G3D_CATEGORIES.engine;
       const inc = g3dEdges.filter(e => e.targetNode.id === g3dSelected.id);
       const out = g3dEdges.filter(e => e.sourceNode.id === g3dSelected.id);
       const fieldsHtml = (g3dSelected.fields || []).map(f =>
-        `<div class="px-2.5 py-1 rounded bg-[var(--background)] border border-[var(--border)] font-mono text-xs truncate" title="${f}">${f}</div>`
+        `<div class="code-chip" title="${f}">${f}</div>`
       ).join('');
       const relsHtml = [
-        ...out.map(e => `<div class="text-xs font-mono"><span class="text-indigo-400">&rarr; ${e.type}</span> ${e.targetNode.label}</div>`),
-        ...inc.map(e => `<div class="text-xs font-mono"><span class="text-emerald-400">&larr; ${e.type}</span> ${e.sourceNode.label}</div>`)
+        ...out.map(e => `<div class="muted"><span class="signal-text">${e.type}</span> to ${e.targetNode.label}</div>`),
+        ...inc.map(e => `<div class="muted"><span class="signal-text">${e.type}</span> from ${e.sourceNode.label}</div>`)
       ].join('');
       box.innerHTML = `
-        <div class="space-y-1">
-          <span class="text-xs px-2 py-0.5 rounded font-semibold" style="background:${col.glow};color:${col.text}">${col.badge}</span>
-          <h4 class="text-sm font-bold font-mono pt-1">${g3dSelected.fullPath || g3dSelected.label}</h4>
-          <p class="text-xs cg-muted">${g3dSelected.summary || ''}</p>
+        <div class="field-group">
+          <div><span class="tag tag--live">${meta.badge}</span></div>
+          <h3>${g3dSelected.fullPath || g3dSelected.label}</h3>
+          <p class="muted">${g3dSelected.summary || ''}</p>
         </div>
-        <div class="space-y-1">
-          <div class="text-xs font-semibold uppercase tracking-wider cg-muted">Columns / AST Symbols (${(g3dSelected.fields || []).length})</div>
-          <div class="space-y-1 max-h-44 overflow-y-auto pr-1">${fieldsHtml}</div>
+        <div class="field-group">
+          <h3>Columns and AST symbols (${(g3dSelected.fields || []).length})</h3>
+          <div class="code-chip-row">${fieldsHtml}</div>
         </div>
-        <div class="space-y-1">
-          <div class="text-xs font-semibold uppercase tracking-wider cg-muted">3D Edges (${inc.length + out.length})</div>
-          <div class="space-y-1">${relsHtml || '<span class="text-xs cg-muted">No direct edges</span>'}</div>
+        <div class="field-group">
+          <h3>Connected 3D edges (${inc.length + out.length})</h3>
+          <div class="record-list">${relsHtml || '<span class="muted">No direct edges on this node.</span>'}</div>
         </div>
       `;
     }
@@ -675,8 +1207,20 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
     function init3DCanvasEvents() {
       if (g3dStarted) return;
       const cvs = document.getElementById('graph3d-canvas');
+      const stage = document.getElementById('graph3d-stage');
       if (!cvs) return;
       g3dStarted = true;
+      const rotBtn = document.getElementById('btn-3d-rotate');
+      if (rotBtn) {
+        rotBtn.textContent = `3D orbit: ${g3dRotate ? 'on' : 'off'}`;
+        rotBtn.classList.toggle('is-active', g3dRotate);
+      }
+      if (stage) {
+        stage.addEventListener('pointerenter', () => { g3dHoverPause = true; });
+        stage.addEventListener('pointerleave', () => { g3dHoverPause = false; });
+        stage.addEventListener('focusin', () => { g3dHoverPause = true; });
+        stage.addEventListener('focusout', () => { g3dHoverPause = false; });
+      }
       cvs.addEventListener('pointerdown', e => {
         g3dDrag = true; g3dMoved = false; g3dSX = e.clientX; g3dSY = e.clientY;
         cvs.setPointerCapture(e.pointerId);
@@ -696,7 +1240,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
           const mx = e.clientX - rect.left, my = e.clientY - rect.top;
           const vis = g3dNodes.filter(n => g3dFilter === 'all' || n.category === g3dFilter).sort((a, b) => a.depthZ - b.depthZ);
           for (const n of vis) {
-            if (Math.hypot(mx - n.projX, my - n.projY) <= Math.max(12, n.size * n.projScale)) {
+            if (Math.hypot(mx - n.projX, my - n.projY) <= Math.max(18, n.size * n.projScale * 1.25)) {
               g3dSelected = n;
               render3DInspector();
               break;
@@ -718,17 +1262,37 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
             cvs.height = Math.floor(rect.height * dpr);
           }
           const ctx = cvs.getContext('2d');
+          const bgCol = readToken('--point-core');
+          const inkCol = readToken('--color-ink');
+          const ink2Col = readToken('--color-ink-2');
+          const mutedCol = readToken('--color-muted');
+          const ruleCol = readToken('--color-rule-2');
+          const ptLo = readToken('--point-lo');
+          const ptMid = readToken('--point-mid');
+          const ptHi = readToken('--point-hi');
+          const limeCol = readToken('--color-accent');
+          const bodyFont = readToken('--font-body');
+
           ctx.save();
           ctx.scale(dpr, dpr);
           const w = rect.width, h = rect.height;
-          ctx.fillStyle = '#090d16';
+          ctx.fillStyle = bgCol;
           ctx.fillRect(0, 0, w, h);
 
-          if (g3dRotate && !g3dDrag) g3dRotY += 0.0045;
+          if (g3dRotate && !g3dDrag && !g3dHoverPause && !REDUCED_MOTION) {
+            g3dRotY += 0.0022;
+            g3dSweepPhase = (g3dSweepPhase + 0.0024) % 1;
+          }
+          const sweepX = (Math.sin(g3dSweepPhase * Math.PI * 2) * 0.5 + 0.5) * w;
           const vis = g3dNodes.filter(n => g3dFilter === 'all' || n.category === g3dFilter);
-          const visSet = new Set(vis.map(n => n.id));
+          const linkedIds = new Set();
+          if (g3dSelected) {
+            g3dEdges.forEach(e => {
+              if (e.sourceNode.id === g3dSelected.id) linkedIds.add(e.targetNode.id);
+              if (e.targetNode.id === g3dSelected.id) linkedIds.add(e.sourceNode.id);
+            });
+          }
 
-          // 3D Force physics
           for (let i = 0; i < vis.length; i++) {
             for (let j = i + 1; j < vis.length; j++) {
               const a = vis[i], b = vis[j];
@@ -743,56 +1307,85 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
             const a = e.sourceNode, b = e.targetNode;
             const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
             const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-            const s = (d - 110) * 0.012;
+            const s = (d - 115) * 0.012;
             a.vx += (dx / d) * s; a.vy += (dy / d) * s; a.vz += (dz / d) * s;
             b.vx -= (dx / d) * s; b.vy -= (dy / d) * s; b.vz -= (dz / d) * s;
           });
+
+          const cosY = Math.cos(g3dRotY), sinY = Math.sin(g3dRotY);
+          const cosX = Math.cos(g3dRotX), sinX = Math.sin(g3dRotX);
+          const allPoints = [];
+
           vis.forEach(n => {
             n.vx -= n.x * 0.008; n.vz -= n.z * 0.008;
             n.vy += g3dLayers ? (((n.tier || 0) * 95) - n.y) * 0.06 : -n.y * 0.008;
             n.vx *= 0.82; n.vy *= 0.82; n.vz *= 0.82;
             n.x += n.vx; n.y += n.vy; n.z += n.vz;
 
-            const cosY = Math.cos(g3dRotY), sinY = Math.sin(g3dRotY);
             const x1 = n.x * cosY - n.z * sinY, z1 = n.z * cosY + n.x * sinY;
-            const cosX = Math.cos(g3dRotX), sinX = Math.sin(g3dRotX);
             const y2 = n.y * cosX - z1 * sinX, z2 = z1 * cosX + n.y * sinX;
             const sc = (430 * g3dZoom) / Math.max(80, 400 + z2);
             n.projX = w / 2 + x1 * sc; n.projY = h / 2 + y2 * sc; n.projScale = sc; n.depthZ = z2;
+
+            const isFound = (g3dSelected && g3dSelected.id === n.id) || linkedIds.has(n.id);
+            (n.samples || []).forEach(sp => {
+              const sx = n.x + sp.ox, sy = n.y + sp.oy, sz = n.z + sp.oz;
+              const rx1 = sx * cosY - sz * sinY, rz1 = sz * cosY + sx * sinY;
+              const ry2 = sy * cosX - rz1 * sinX, rz2 = rz1 * cosX + sy * sinX;
+              const psc = (430 * g3dZoom) / Math.max(80, 400 + rz2);
+              const px = w / 2 + rx1 * psc, py = h / 2 + ry2 * psc;
+              const swept = Math.abs(px - sweepX) < 28;
+              allPoints.push({
+                px, py, rz2, psc,
+                col: isFound ? limeCol : (swept ? ptHi : (sp.elev > 0.66 ? ptHi : (sp.elev > 0.33 ? ptMid : ptLo))),
+                rad: Math.max(1.1, (isFound ? 2.1 : 1.65) * psc)
+              });
+            });
           });
 
-          g3dEdges.forEach(e => {
-            if (!visSet.has(e.sourceNode.id) || !visSet.has(e.targetNode.id)) return;
-            const a = e.sourceNode, b = e.targetNode;
-            const hi = g3dSelected && (g3dSelected.id === a.id || g3dSelected.id === b.id);
-            ctx.strokeStyle = hi ? 'rgba(129,140,248,0.9)' : 'rgba(148,163,184,0.3)';
-            ctx.lineWidth = hi ? 2 : 1.1;
-            ctx.beginPath(); ctx.moveTo(a.projX, a.projY); ctx.lineTo(b.projX, b.projY); ctx.stroke();
+          allPoints.sort((a, b) => b.rz2 - a.rz2).forEach(pt => {
+            ctx.fillStyle = pt.col;
+            ctx.beginPath();
+            ctx.arc(pt.px, pt.py, pt.rad, 0, Math.PI * 2);
+            ctx.fill();
           });
 
-          g3dParticles.forEach(pt => {
-            const a = pt.edge.sourceNode, b = pt.edge.targetNode;
-            if (!visSet.has(a.id) || !visSet.has(b.id)) return;
-            pt.t = (pt.t + pt.speed) % 1;
-            const px = a.projX + (b.projX - a.projX) * pt.t, py = a.projY + (b.projY - a.projY) * pt.t;
-            ctx.fillStyle = (G3D_COLORS[a.category] || G3D_COLORS.engine).fill;
-            ctx.beginPath(); ctx.arc(px, py, 2.3, 0, Math.PI * 2); ctx.fill();
-          });
-
+          ctx.font = `400 12px ${bodyFont}`;
           [...vis].sort((a, b) => b.depthZ - a.depthZ).forEach(n => {
-            const col = G3D_COLORS[n.category] || G3D_COLORS.engine;
-            const r = Math.max(7, n.size * n.projScale * 0.78);
             const sel = g3dSelected && g3dSelected.id === n.id;
-            const grad = ctx.createRadialGradient(n.projX - r * 0.3, n.projY - r * 0.3, r * 0.1, n.projX, n.projY, r);
-            grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.3, col.fill); grad.addColorStop(1, '#0f172a');
-            ctx.beginPath(); ctx.arc(n.projX, n.projY, r, 0, Math.PI * 2);
-            ctx.fillStyle = grad; ctx.fill();
-            if (sel) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke(); }
-            ctx.font = `${sel ? '700' : '600'} 11px Inter, system-ui, sans-serif`;
-            ctx.fillStyle = sel ? '#ffffff' : '#e2e8f0';
+            const linked = linkedIds.has(n.id);
+            ctx.fillStyle = sel ? limeCol : (linked ? inkCol : ink2Col);
             ctx.textAlign = 'center';
-            ctx.fillText(n.label, n.projX, n.projY + r + 13);
+            ctx.fillText(n.label, n.projX, n.projY + Math.max(16, n.size * n.projScale) + 12);
           });
+
+          // Vantage hairline leader callouts (at most two on screen)
+          const calloutTargets = [];
+          if (g3dSelected && vis.includes(g3dSelected)) calloutTargets.push(g3dSelected);
+          const firstLinked = vis.find(n => linkedIds.has(n.id));
+          if (firstLinked) calloutTargets.push(firstLinked);
+          calloutTargets.slice(0, 2).forEach((cn, idx) => {
+            const dir = idx === 0 ? 1 : -1;
+            const lx = Math.max(56, Math.min(w - 140, cn.projX + dir * 42));
+            const ly = Math.max(48, Math.min(h - 56, cn.projY - 26));
+            ctx.fillStyle = limeCol;
+            ctx.beginPath();
+            ctx.arc(cn.projX, cn.projY, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = ruleCol;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(cn.projX, cn.projY);
+            ctx.lineTo(lx, ly);
+            ctx.lineTo(lx + dir * 54, ly);
+            ctx.stroke();
+            ctx.fillStyle = inkCol;
+            ctx.textAlign = dir > 0 ? 'left' : 'right';
+            ctx.fillText(`${(cn.fields || []).length} symbols`, lx + dir * 4, ly - 5);
+            ctx.fillStyle = mutedCol;
+            ctx.fillText(cn.category, lx + dir * 4, ly + 13);
+          });
+
           ctx.restore();
         }
         requestAnimationFrame(stepAndDraw);
@@ -800,21 +1393,36 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       requestAnimationFrame(stepAndDraw);
     }
 
-    function set3DFilter(cat) { g3dFilter = cat; }
+    function set3DFilter(cat) {
+      g3dFilter = cat;
+      document.querySelectorAll('[data-filter]').forEach(btn => {
+        const active = btn.getAttribute('data-filter') === cat;
+        btn.classList.toggle('is-active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    }
     function toggle3DRotate() {
       g3dRotate = !g3dRotate;
-      document.getElementById('btn-3d-rotate').textContent = `3D Orbit: ${g3dRotate ? 'ON' : 'OFF'}`;
+      const btn = document.getElementById('btn-3d-rotate');
+      if (btn) {
+        btn.textContent = `3D orbit: ${g3dRotate ? 'on' : 'off'}`;
+        btn.classList.toggle('is-active', g3dRotate);
+      }
     }
     function toggle3DLayers() {
       g3dLayers = !g3dLayers;
-      document.getElementById('btn-3d-layers').textContent = g3dLayers ? 'Layout: 3D Stratified Tiers' : 'Layout: 3D Force Sphere';
+      const btn = document.getElementById('btn-3d-layers');
+      if (btn) {
+        btn.textContent = g3dLayers ? 'Layout: stratified tiers' : 'Layout: force sphere';
+        btn.classList.toggle('is-active', g3dLayers);
+      }
     }
     function zoom3D(f) { g3dZoom = Math.max(0.55, Math.min(2.2, g3dZoom * f)); }
 
     function initWorkspaces() {
       const sel = document.getElementById('ws-select');
       const keys = Object.keys(STATE.overviews || {});
-      const opts = ['<option value="__sqlite_schema__">SQLite Core Data Models (6 Schema Tables)</option>']
+      const opts = ['<option value="__sqlite_schema__">SQLite core data models (6 schema tables)</option>']
         .concat(keys.map(k => `<option value="${k}">${k}</option>`));
       sel.innerHTML = opts.join('');
       if (keys.length > 0 && !document.getElementById('ov-ws').value) {
@@ -855,29 +1463,29 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
 
       const filesHtml = (ov.files || []).map(f => {
         const badge = f.is_stale
-          ? '<span class="px-2 py-0.5 text-xs rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">STALE</span>'
-          : '<span class="px-2 py-0.5 text-xs rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">FRESH</span>';
-        const syms = (f.key_symbols || []).map(s => `<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 text-xs">${s}</code>`).join(' ');
+          ? '<span class="tag">Stale</span>'
+          : '<span class="tag tag--live">Fresh</span>';
+        const syms = (f.key_symbols || []).map(s => `<code class="code-chip">${s}</code>`).join(' ');
         return `
-          <div class="p-3 rounded-lg border border-[var(--border,#334155)] space-y-1.5">
-            <div class="flex items-center justify-between gap-2">
-              <span class="font-mono text-xs font-semibold">${f.rel_path}</span>
+          <div class="record-row">
+            <div class="record-head">
+              <strong>${f.rel_path}</strong>
               ${badge}
             </div>
-            <p class="text-xs cg-muted">${f.summary}</p>
-            ${syms ? `<div class="flex flex-wrap gap-1 pt-1">${syms}</div>` : ''}
+            <p class="muted">${f.summary}</p>
+            ${syms ? `<div class="code-chip-row">${syms}</div>` : ''}
           </div>
         `;
       }).join('');
-      document.getElementById('files-list').innerHTML = filesHtml || '<p class="text-xs cg-muted">Select an indexed workspace above to browse tracked files.</p>';
+      document.getElementById('files-list').innerHTML = filesHtml || '<p class="empty-state">No tracked files loaded for this view. Select an indexed workspace above or click Rebuild index.</p>';
 
       const relsHtml = (ov.relationships || []).map(r => `
-        <div class="p-2.5 rounded-lg border border-[var(--border,#334155)] text-xs space-y-1">
-          <div class="font-mono"><span class="text-sky-400">${r.source}</span> <span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">[${r.type}]</span> &rarr; <span class="text-emerald-400">${r.target}</span></div>
-          ${r.description ? `<div class="cg-muted">${r.description}</div>` : ''}
+        <div class="record-row">
+          <div><span class="signal-text">${r.source}</span> <span class="tag">${r.type}</span> to <strong>${r.target}</strong></div>
+          ${r.description ? `<div class="muted">${r.description}</div>` : ''}
         </div>
       `).join('');
-      document.getElementById('rels-list').innerHTML = relsHtml || '<p class="text-xs cg-muted">Select an indexed workspace above to browse file relationships.</p>';
+      document.getElementById('rels-list').innerHTML = relsHtml || '<p class="empty-state">No cross-file implementation edges recorded for this selection. Select an indexed workspace above to inspect AST relationships.</p>';
     }
 
     function renderOverridesAndQueries() {
@@ -889,33 +1497,33 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
       });
 
       document.getElementById('overrides-list').innerHTML = allOverrides.map(o => `
-        <div class="p-3.5 rounded-lg border border-amber-500/40 bg-amber-500/5 space-y-1">
-          <div class="flex items-center justify-between">
-            <span class="font-mono text-xs font-bold text-amber-300">[${(o.priority || 'high').toUpperCase()}] ${o.override_key}</span>
-            <span class="text-xs cg-muted font-mono">${o.ws}</span>
+        <div class="record-row">
+          <div class="record-head">
+            <span class="signal-text">[${(o.priority || 'high')}] ${o.override_key}</span>
+            <span class="muted">${o.ws}</span>
           </div>
-          <div class="text-sm font-medium">${o.verified_truth}</div>
-          ${o.hallucination_or_mistake ? `<div class="text-xs text-rose-400">Prevents hallucination: ${o.hallucination_or_mistake}</div>` : ''}
+          <div>${o.verified_truth}</div>
+          ${o.hallucination_or_mistake ? `<div class="muted">Prevents mistake: ${o.hallucination_or_mistake}</div>` : ''}
         </div>
-      `).join('') || '<p class="text-xs cg-muted">No ground-truth overrides pinned yet. Use the form above or `context_ctl.py correct` to add one.</p>';
+      `).join('') || '<p class="empty-state">No ground-truth overrides pinned yet. Complete the form above to record a verified domain rule.</p>';
 
       document.getElementById('queries-list').innerHTML = allQueries.map(q => `
-        <div class="p-3.5 rounded-lg border border-[var(--border,#334155)] space-y-1">
-          <div class="flex items-center justify-between">
-            <span class="font-mono text-xs font-bold text-indigo-400">${q.query_key} (${q.category})</span>
-            <span class="text-xs cg-muted font-mono">${q.ws}</span>
+        <div class="record-row">
+          <div class="record-head">
+            <span class="signal-text">${q.query_key} (${q.category})</span>
+            <span class="muted">${q.ws}</span>
           </div>
-          ${q.query_text ? `<div class="text-xs cg-muted">Query: ${q.query_text}</div>` : ''}
-          <div class="text-sm">${q.result_summary}</div>
+          ${q.query_text ? `<div class="muted">Query: ${q.query_text}</div>` : ''}
+          <div>${q.result_summary}</div>
         </div>
-      `).join('') || '<p class="text-xs cg-muted">No cached queries stored yet.</p>';
+      `).join('') || '<p class="empty-state">No cached queries stored yet. Expensive database queries and generated datasets saved via cache_store_query appear here.</p>';
     }
 
     async function apiAction(action) {
       const ws = document.getElementById('ws-select')?.value || 'global';
       const toast = document.getElementById('action-toast');
       toast.classList.remove('hidden');
-      toast.textContent = `Running ${action} on ${ws}...`;
+      toast.textContent = `Running ${action} on ${ws}\u2026`;
       if (vscodeApi) {
         vscodeApi.postMessage({ type: 'apiAction', action, workspace_path: ws });
         return;
@@ -940,15 +1548,25 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     async function submitOverride() {
-      const ws = document.getElementById('ov-ws').value || 'global';
-      const key = document.getElementById('ov-key').value.trim();
+      const wsEl = document.getElementById('ov-ws');
+      const keyEl = document.getElementById('ov-key');
+      const truthEl = document.getElementById('ov-truth');
+      const helpEl = document.getElementById('ov-cli-preview');
+      const ws = wsEl.value || 'global';
+      const key = keyEl.value.trim();
       const priority = document.getElementById('ov-priority').value;
       const mistake = document.getElementById('ov-mistake').value.trim();
-      const truth = document.getElementById('ov-truth').value.trim();
+      const truth = truthEl.value.trim();
+
+      keyEl.toggleAttribute('aria-invalid', !key);
+      truthEl.toggleAttribute('aria-invalid', !truth);
       if (!key || !truth) {
-        alert('Please enter both Override Slug and Verified Ground-Truth Rule.');
+        helpEl.setAttribute('data-error', 'true');
+        helpEl.textContent = 'Enter both an override slug and a verified ground-truth rule before saving.';
+        (!key ? keyEl : truthEl).focus();
         return;
       }
+      helpEl.removeAttribute('data-error');
       if (vscodeApi) {
         vscodeApi.postMessage({
           type: 'submitOverride',
@@ -958,9 +1576,10 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
           verified_truth: truth,
           priority
         });
-        document.getElementById('ov-key').value = '';
+        keyEl.value = '';
         document.getElementById('ov-mistake').value = '';
-        document.getElementById('ov-truth').value = '';
+        truthEl.value = '';
+        helpEl.textContent = `Pinned ground-truth override ${key}.`;
         return;
       }
       try {
@@ -976,24 +1595,33 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
             priority
           })
         });
-        document.getElementById('ov-key').value = '';
+        keyEl.value = '';
         document.getElementById('ov-mistake').value = '';
-        document.getElementById('ov-truth').value = '';
+        truthEl.value = '';
+        helpEl.textContent = `Pinned ground-truth override ${key}.`;
         await reloadState();
       } catch (err) {
-        document.getElementById('ov-cli-preview').textContent =
-          `Run: python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py correct -w "${ws}" -k "${key}" --mistake "${mistake}" --truth "${truth}" --priority ${priority}`;
+        helpEl.textContent =
+          `Offline: run python3 ~/.gemini/config/plugins/context-graph/scripts/context_ctl.py correct -w "${ws}" -k "${key}" --mistake "${mistake}" --truth "${truth}" --priority ${priority}`;
       }
     }
 
     async function reloadState() {
       const badge = document.getElementById('mode-badge');
+      const syncBtn = document.getElementById('btn-sync');
+      if (syncBtn) syncBtn.setAttribute('aria-busy', 'true');
+      if (!window.__INITIAL_CG_STATE__ && DATA_STATE !== 'full') {
+        DATA_STATE = 'loading';
+        renderKPIs();
+        renderTokens();
+      }
       if (vscodeApi) {
         vscodeApi.postMessage({ type: 'reloadState' });
         if (badge) {
-          badge.textContent = 'VS Code Extension Connected';
-          badge.className = 'text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium';
+          badge.textContent = 'VS Code extension connected';
+          badge.removeAttribute('data-offline');
         }
+        if (syncBtn) syncBtn.removeAttribute('aria-busy');
         renderKPIs();
         renderTokens();
         initWorkspaces();
@@ -1003,30 +1631,34 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
         const res = await fetch(`${API_BASE}/api/state`);
         if (res.ok) {
           STATE = await res.json();
+          DATA_STATE = 'full';
           if (badge) {
-            badge.textContent = 'Live SQLite API Connected';
-            badge.className = 'text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium';
+            badge.textContent = 'Live SQLite API connected';
+            badge.removeAttribute('data-offline');
           }
         }
       } catch (err) {
+        DATA_STATE = window.__INITIAL_CG_STATE__ ? 'full' : 'error';
         if (badge) {
-          badge.textContent = window.__INITIAL_CG_STATE__ ? 'Embedded Snapshot Active' : 'Offline — Run: python3 scripts/ui_server.py';
-          badge.className = 'text-xs px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium';
+          badge.textContent = window.__INITIAL_CG_STATE__ ? 'Embedded snapshot active' : 'Offline: run python3 scripts/ui_server.py';
+          badge.setAttribute('data-offline', 'true');
         }
       }
+      if (syncBtn) syncBtn.removeAttribute('aria-busy');
       renderKPIs();
       renderTokens();
       initWorkspaces();
     }
 
-    if (!getComputedStyle(document.documentElement).getPropertyValue('--background').trim()) {
-      const rootStyle = document.documentElement.style;
-      rootStyle.setProperty('--background', '#0f172a');
-      rootStyle.setProperty('--foreground', '#f8fafc');
-      rootStyle.setProperty('--card', '#1e293b');
-      rootStyle.setProperty('--muted-foreground', '#94a3b8');
-      rootStyle.setProperty('--border', '#334155');
-    }
+    (function restoreUrlState() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const t = params.get('tab');
+        if (t && ['tokens', 'graph', 'overrides', 'queries'].includes(t)) {
+          switchTab(t);
+        }
+      } catch (_) {}
+    })();
 
     reloadState();
   </script>

@@ -112,7 +112,7 @@ function activate(context) {
   // Tree Providers
   const featuresProvider = new SimpleTreeProvider(() => {
     if (!cachedState || !cachedState.token_report) {
-      return [new vscode.TreeItem('Loading token & feature metrics...')];
+      return [new vscode.TreeItem('Loading token & feature metrics\u2026')];
     }
     const tr = cachedState.token_report;
     const gt = tr.grand_totals || {};
@@ -120,7 +120,7 @@ function activate(context) {
       `Total: $${Number(gt.estimated_cost_usd || 0).toFixed(2)} | Saved: $${Number(gt.estimated_cache_savings_usd || 0).toFixed(2)}`,
       vscode.TreeItemCollapsibleState.None
     );
-    summaryItem.description = `${gt.total_conversations || 0} convs • ${gt.plugin_calls || 0} plugin calls`;
+    summaryItem.description = `${gt.total_conversations || 0} convs, ${gt.plugin_calls || 0} plugin calls`;
     summaryItem.iconPath = new vscode.ThemeIcon('graph');
     summaryItem.command = {
       command: 'contextGraph.openDashboard',
@@ -137,7 +137,7 @@ function activate(context) {
         f.plugin_calls > 0
           ? ` (Saved $${Number(f.estimated_cache_savings_usd || 0).toFixed(2)})`
           : '';
-      item.description = `$${Number(f.estimated_cost_usd || 0).toFixed(2)}${savedStr} • ${f.repo_name}`;
+      item.description = `$${Number(f.estimated_cost_usd || 0).toFixed(2)}${savedStr}, ${f.repo_name}`;
       item.tooltip = `Feature: ${f.feature_name}\nRepo: ${f.repo_name}\nBranch: ${f.git_branch}\nTokens: ${Number(f.total_tokens || 0).toLocaleString()}\nPlugin Used: ${f.plugin_calls > 0 ? `Yes (${f.plugin_calls} calls)` : 'No ($0.00 saved)'}`;
       item.iconPath = new vscode.ThemeIcon(
         f.plugin_calls > 0 ? 'sparkle' : 'git-branch'
@@ -160,7 +160,7 @@ function activate(context) {
     const list = ov.ground_truth_overrides || [];
     if (list.length === 0) {
       const empty = new vscode.TreeItem(
-        'No active overrides — click (+) to pin a rule'
+        'No active overrides: click (+) to pin a rule'
       );
       empty.iconPath = new vscode.ThemeIcon('info');
       empty.command = {
@@ -207,7 +207,7 @@ function activate(context) {
         f.rel_path,
         vscode.TreeItemCollapsibleState.None
       );
-      item.description = `${f.is_stale ? 'STALE' : 'FRESH'} • ${f.symbol_count || 0} symbols`;
+      item.description = `${f.is_stale ? 'STALE' : 'FRESH'}, ${f.symbol_count || 0} symbols`;
       item.tooltip = `${f.rel_path}\n${f.summary || ''}\nSymbols: ${(f.key_symbols || []).join(', ')}`;
       item.iconPath = new vscode.ThemeIcon(
         f.is_stale ? 'warning' : 'pass-filled'
@@ -289,7 +289,7 @@ function activate(context) {
 
       currentWebviewPanel = vscode.window.createWebviewPanel(
         'contextGraphDashboard',
-        'Context Graph — Control Center',
+        'Context Graph: Control Center',
         vscode.ViewColumn.One,
         {
           enableScripts: true,
@@ -370,7 +370,7 @@ function activate(context) {
         ]);
         currentWebviewPanel.webview.html = fs.readFileSync(tmpHtml, 'utf8');
       } catch (err) {
-        currentWebviewPanel.webview.html = `<html><body style="padding:24px;font-family:sans-serif;color:#f87171"><h3>Failed to load Context Graph Dashboard</h3><pre>${err.message}</pre></body></html>`;
+        currentWebviewPanel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Context Graph: Error</title><style>:root{--bg:oklch(13.5% 0.012 235);--ink:oklch(95% 0.006 230);--err:oklch(72% 0.15 27);--font:ui-sans-serif,system-ui,sans-serif;--space-lg:24px;}body{margin:0;padding:var(--space-lg);background:var(--bg);color:var(--ink);font-family:var(--font);}h1{color:var(--err);}</style></head><body><h1>Failed to load Context Graph Control Center</h1><pre>${err.message}</pre></body></html>`;
       }
     }),
 
