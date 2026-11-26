@@ -69,17 +69,17 @@ class TestContextGraphEngine(unittest.TestCase):
 
 
         f1 = db_engine.derive_feature_info(
-            "fa", "1643-foundation-batch-associate-and-quit-logic", "some prompt"
+            "billing-web", "101-checkout-discount-and-tax-logic", "some prompt"
         )
         f2 = db_engine.derive_feature_info(
-            "brocamp/tool-v3-server",
-            "584-foundation-batch-associate-and-quit-logic",
+            "acme/billing-api",
+            "204-checkout-discount-and-tax-logic",
             "another prompt",
         )
         self.assertEqual(f1["feature_key"], f2["feature_key"])
-        self.assertEqual(f1["feature_name"], "foundation-batch-associate-and-quit-logic")
-        self.assertEqual(f1["ticket_id"], "#1643")
-        self.assertEqual(f2["ticket_id"], "#584")
+        self.assertEqual(f1["feature_name"], "checkout-discount-and-tax-logic")
+        self.assertEqual(f1["ticket_id"], "#101")
+        self.assertEqual(f2["ticket_id"], "#204")
 
     def test_index_verify_and_overrides_export_import(self) -> None:
         py_file = os.path.join(self.ws_dir, "service.py")

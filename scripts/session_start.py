@@ -110,8 +110,14 @@ def main() -> None:
     workspace = (
         workspace_paths[0]
         if workspace_paths
-        else (payload.get("cwd") or "global")
+        else (payload.get("cwd") or "")
     )
+
+    # Do not inject private project memory into unscoped/global chats with no active workspace
+    if not workspace or workspace.strip().lower() == "global":
+        sys.stdout.write("{}\n")
+        sys.stdout.flush()
+        return
 
     is_claude_or_gemini_cli = (
         "hook_event_name" in payload or ("cwd" in payload and "workspacePaths" not in payload)

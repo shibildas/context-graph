@@ -89,22 +89,29 @@ def handle_post_tool(payload: dict) -> None:
                     conv_id,
                     tool_name,
                     target_file,
-                    json.dumps(
-                        {
-                            k: v
-                            for k, v in args.items()
-                            if k
-                            not in (
-                                "CodeContent",
-                                "ReplacementContent",
-                                "TargetContent",
-                                "ReplacementChunks",
-                                "content",
-                                "new_string",
-                                "old_string",
-                                "edits",
-                            )
-                        }
+                    db_engine.redact_secrets(
+                        json.dumps(
+                            {
+                                k: v
+                                for k, v in args.items()
+                                if k
+                                not in (
+                                    "CodeContent",
+                                    "ReplacementContent",
+                                    "TargetContent",
+                                    "ReplacementChunks",
+                                    "Content",
+                                    "Target",
+                                    "Replacement",
+                                    "OldContent",
+                                    "NewContent",
+                                    "content",
+                                    "new_string",
+                                    "old_string",
+                                    "edits",
+                                )
+                            }
+                        )
                     )[:500],
                     ts,
                 ),

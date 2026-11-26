@@ -10,12 +10,16 @@ Provides:
 """
 
 import argparse
+import hmac
 import http.server
 import json
 import os
+import secrets
 import sys
 import urllib.parse
 from typing import Any, Dict
+
+SERVER_CSRF_TOKEN = secrets.token_urlsafe(32)
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PLUGIN_ROOT not in sys.path:
@@ -620,7 +624,7 @@ button, input, select, textarea { font: inherit; }
             <p class="muted">Plugin savings report $0.00 on branches where Context Graph was not invoked.</p>
           </div>
           <label class="visually-hidden" for="feature-search">Filter features, tickets, or repositories</label>
-          <input id="feature-search" name="feature_search" oninput="renderTokens()" type="search" placeholder="e.g. #1643 or main" class="input input--search" />
+          <input id="feature-search" name="feature_search" oninput="renderTokens()" type="search" placeholder="e.g. #101 or main" class="input input--search" />
         </div>
         <div class="table-scroll">
           <table class="data-table">
@@ -1531,7 +1535,10 @@ button, input, select, textarea { font: inherit; }
       try {
         const res = await fetch(`${API_BASE}/api/action`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CG-Token': window.__CG_CSRF_TOKEN__ || ''
+          },
           body: JSON.stringify({ action, workspace_path: ws })
         });
         const data = await res.json();
@@ -1585,7 +1592,10 @@ button, input, select, textarea { font: inherit; }
       try {
         await fetch(`${API_BASE}/api/action`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CG-Token': window.__CG_CSRF_TOKEN__ || ''
+          },
           body: JSON.stringify({
             action: 'correct',
             workspace_path: ws,
@@ -1667,9 +1677,13 @@ button, input, select, textarea { font: inherit; }
 """
 
 
-def build_html(workspace_filter: str = "") -> str:
+def build_html(workspace_filter: str = "", csrf_token: str = "") -> str:
     state_json = json.dumps(collect_full_state(workspace_filter)).replace("</", "<\\/")
-    inject = f"  <script>window.__INITIAL_CG_STATE__ = {state_json};</script>\n  <script>\n    const vscodeApi"
+    token_json = json.dumps(csrf_token)
+    inject = (
+        f"  <script>window.__INITIAL_CG_STATE__ = {state_json};"
+        f" window.__CG_CSRF_TOKEN__ = {token_json};</script>\n  <script>\n    const vscodeApi"
+    )
     return DASHBOARD_HTML_TEMPLATE.replace("  <script>\n    const vscodeApi", inject, 1)
 
 
@@ -1677,12 +1691,29 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         pass
 
+    def _allowed_origins(self) -> set:
+        port = self.server.server_address[1]
+        return {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+
+    def _is_origin_allowed(self) -> bool:
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        return origin in self._allowed_origins()
+
     def _send_cors_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        origin = self.headers.get("Origin")
+        if origin and origin in self._allowed_origins():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-CG-Token")
 
     def do_OPTIONS(self) -> None:
+        if not self._is_origin_allowed():
+            self.send_response(403)
+            self.end_headers()
+            return
         self.send_response(204)
         self._send_cors_headers()
         self.end_headers()
@@ -1697,11 +1728,14 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def do_GET(self) -> None:
+        if not self._is_origin_allowed():
+            self._send_json({"error": "Forbidden origin"}, 403)
+            return
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/state":
             self._send_json(collect_full_state())
         else:
-            html_bytes = build_html().encode("utf-8")
+            html_bytes = build_html(csrf_token=SERVER_CSRF_TOKEN).encode("utf-8")
             self.send_response(200)
             self._send_cors_headers()
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1710,6 +1744,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(html_bytes)
 
     def do_POST(self) -> None:
+        if not self._is_origin_allowed():
+            self._send_json({"error": "Forbidden origin"}, 403)
+            return
+        token = self.headers.get("X-CG-Token", "")
+        if not token or not hmac.compare_digest(token, SERVER_CSRF_TOKEN):
+            self._send_json({"error": "Invalid or missing CSRF token"}, 403)
+            return
         if self.path != "/api/action":
             self._send_json({"error": "Not found"}, 404)
             return
